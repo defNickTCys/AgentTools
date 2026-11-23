@@ -1,6 +1,32 @@
-# AgentTools 1.0.0
+<p align="center">
+  <img src="docs/assets/banner-agenttools.svg" alt="AgentTools" width="880">
+</p>
 
-AgentTools é um módulo para PowerShell no Windows. Seu comando público, `icp`, executa cada comando de um bloco uma vez, em sequência, e para na primeira falha por padrão. Ele mostra o andamento no terminal e gera um relatório estruturado para compartilhar ou analisar em scripts.
+<p align="center">
+  <img alt="PowerShell 7.2+" src="https://img.shields.io/badge/PowerShell-7.2%2B-458588?logo=powershell&logoColor=FBF1C7&labelColor=282828">
+  <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11-83A598?labelColor=282828">
+  <img alt="Versão 1.0.0" src="https://img.shields.io/badge/vers%C3%A3o-1.0.0-FABD2F?labelColor=282828">
+  <img alt="Licença MIT" src="https://img.shields.io/badge/licen%C3%A7a-MIT-B8BB26?labelColor=282828">
+  <a href="https://github.com/defNickTCys/AgentTools/actions/workflows/ci.yml"><img alt="CI: Validate PowerShell Module" src="https://github.com/defNickTCys/AgentTools/actions/workflows/ci.yml/badge.svg"></a>
+</p>
+
+# AgentTools
+
+AgentTools é um módulo para PowerShell 7.2+ no Windows 11 que reúne utilitários de terminal pensados para operadores e para agentes de IA. Cada ferramenta é isolada e carregada apenas quando é usada. Hoje o módulo exporta o comando `icp`.
+
+## Visão do módulo
+
+O módulo é macro: um núcleo compartilhado e ferramentas independentes.
+
+- **`Core/`** concentra o que todas as ferramentas usam: carregamento, ocultação de segredos, temas, controle do terminal e inspeção de processos.
+- **`Tools/<nome>/`** guarda cada ferramenta com manifesto, motor e contrato próprios. O código da ferramenta só entra em memória na primeira chamada que precisa dele.
+- **`skills/`** traz *skills* no padrão aberto *Agent Skills*, para que agentes de IA saibam usar as ferramentas.
+
+## Ferramentas
+
+| Ferramenta | Comando | O que faz | Documentação |
+|---|---|---|---|
+| `icp` | `icp { ... }` | Executa cada comando de um bloco uma vez, em sequência e em escopo isolado, para na primeira falha e gera um relatório estruturado `versao="2"` em XML, JSON ou Markdown. | [Guia do `icp`](Tools/icp/README.md) · [Contrato do relatório](Tools/icp/Contracts/REPORT_CONTRACT.md) · [Skill para agentes](skills/icp/SKILL.md) |
 
 ## Requisitos
 
@@ -32,7 +58,7 @@ New-Item -ItemType Junction -Path $destino -Target $origem | Out-Null
 Import-Module AgentTools
 ```
 
-## Uso
+## Exemplo rápido
 
 ```powershell
 icp { Get-Location; Get-ChildItem -Name }
@@ -40,55 +66,21 @@ icp -Format json -OutFile .\relatorio.json { Get-Location }
 icp -Help -Full
 ```
 
-Em um terminal interativo, `icp` sem argumentos abre o compositor para editar o bloco linha a linha. Antes de executar, o pré-voo inspeciona a estrutura dos comandos e bloqueia construções incompatíveis. Os comandos de um bloco compartilham um escopo isolado do motor de execução.
+A referência completa de parâmetros, variáveis de ambiente e exemplos está no [guia do `icp`](Tools/icp/README.md).
+
+## Skills para agentes de IA
+
+O repositório inclui a skill oficial do `icp` no padrão aberto *Agent Skills* em [skills/icp/SKILL.md](skills/icp/SKILL.md), alinhada ao contrato `versao="2"` e aos parâmetros da `1.0.0`.
+
+Ela pode ser instalada com `npx skills add defNickTCys/AgentTools` ou vinculada diretamente a partir do diretório `skills/icp` do seu clone local.
 
 ## Arquitetura
 
 - `AgentTools.psd1` declara os metadados do módulo e exporta `icp`. `AgentTools.psm1` carrega o núcleo e o ponto de entrada da ferramenta.
 - `Core/` reúne carregamento, ocultação de segredos, temas, controle do terminal e inspeção de processos.
-- `Tools/<nome>/` contém as ferramentas isoladas. O motor de `icp` é carregado na primeira chamada que precisa dele. [Guia da ferramenta](Tools/icp/README.md)
-
-## Parâmetros do `icp`
-
-| Parâmetro | Padrão | Comportamento |
-|---|---|---|
-| `-ScriptBlock` | Obrigatório para execução | Bloco `{ ... }` na posição 0. Em terminal interativo, `icp` sem argumentos abre o compositor. |
-| `-Format` | `xml` | Seleciona `xml`, `json` ou `markdown`. |
-| `-Explain` | Desligado | Inclui legenda, aviso e ambiente detalhados. |
-| `-Step` | Desligado | Em terminal interativo, pede confirmação antes de passar ao próximo comando. |
-| `-ContinueOnError` | Desligado | Executa os comandos seguintes após uma falha. |
-| `-AllowedExitCodes` | `@()` | Aceita os códigos de saída nativos informados e registra `exit` e `exit_permitido`. |
-| `-Raw` | Desligado | Desativa deduplicação e cortes de linhas e largura no relatório. |
-| `-MaxLinesPerCommand` | `150` (mínimo `10`) | Limita as linhas de saída de cada comando no relatório. |
-| `-MaxLineLength` | `1500` (mínimo `80`) | Limita o comprimento de cada linha do relatório. |
-| `-MaxClipboardChars` | `20000` (mínimo `1`) | Acima do limite, grava o relatório em `icp-logs` e copia um resumo com o caminho. A retenção dos arquivos é de sete dias. |
-| `-RedirectTailLines` | `5` (`0` desliga) | Inclui as linhas finais dos arquivos de saída redirecionada. |
-| `-OutFile` | Vazio | Grava o relatório completo em UTF-8 sem BOM e dispensa a área de transferência. |
-| `-NoClipboard` | Desligado | Dispensa a cópia para a área de transferência. |
-| `-NoMask` | Desligado | Desativa a ocultação automática de segredos no relatório. |
-| `-AllowTrailingBackslash` | Desligado | Permite uma barra invertida isolada no fim do comando. |
-| `-CommandTimeoutSeconds` | `0` (desligado) | Ao atingir o limite, encerra processos filhos iniciados pelo comando e registra falha. |
-| `-KeepBlock` | Desligado | Mantém o bloco digitado visível no terminal. |
-| `-NoStatus` | Desligado | Desativa a barra de status e o recolhimento do bloco. |
-| `-Help` | Desligado | Exibe a ajuda visual. Aceita a abreviação `-h`. |
-| `-Full` | Desligado | Amplia a referência exibida por `-Help`. |
-| `-Demo` | Desligado | Exibe uma demonstração animada da barra com `-Help`. |
-
-## Contrato do relatório
-
-O contrato `versao="2"` registra o resultado do bloco, o estado de cada comando, a duração total e os diagnósticos, como erros silenciosos, processos filhos ativos e códigos de saída permitidos. A versão do módulo que gerou o relatório aparece em `versao_icp`.
-
-- **XML** é o padrão e oferece saída compacta para compartilhar.
-- **JSON** fornece dados estruturados para leitura em scripts.
-- **Markdown** organiza o resultado para leitura direta e usa cercas de código ajustadas ao conteúdo.
-
-O conteúdo capturado na saída dos comandos é dado bruto. Consulte os campos de cada formato e as regras de resumo e truncamento no [contrato do relatório](Tools/icp/Contracts/REPORT_CONTRACT.md).
-
-## Skill para agentes de IA
-
-O repositório inclui a skill oficial do `icp` no padrão aberto *Agent Skills* em [skills/icp/SKILL.md](skills/icp/SKILL.md), alinhada ao contrato `versao="2"` e aos parâmetros da `1.0.0`.
-
-Ela pode ser instalada com `npx skills add defNickTCys/AgentTools` ou vinculada diretamente a partir do diretório `skills/icp` do seu clone local.
+- `Tools/<nome>/` contém as ferramentas isoladas. O motor de `icp` é carregado na primeira chamada que precisa dele.
+- `skills/` guarda as *skills* para agentes de IA.
+- `Tests/` reúne os testes Pester.
 
 ## Verificação
 

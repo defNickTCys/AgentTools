@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 136" width="880" height="136" role="img" aria-labelledby="icp-title icp-desc">
+  <title id="icp-title">AgentTools · icp</title>
+  <desc id="icp-desc">Banner do icp: executor sequencial com relatório estruturado e seguro para IAs.</desc>
+  <rect x="1" y="1" width="878" height="134" rx="10" fill="#282828" stroke="#458588" stroke-width="2"/>
+  <g fill="none" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
+    <g stroke="#FBF1C7">
+      <path d="M38 42H50M38 46H42V79M50 46H46V79"/>
+      <path d="M70 79V42H102V55M74 79V46H98V55"/>
+      <path d="M126 79V42H158V70H130V79M130 46H154V66H130Z"/>
+    </g>
+    <g stroke="#83A598">
+      <path d="M38 90H42V81M50 90H46V81M38 94H50"/>
+      <path d="M70 81V94H102V81M74 81V90H98V81"/>
+      <path d="M122 90H126V81M134 90H130V81M122 94H134"/>
+    </g>
+  </g>
+  <g font-family="'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, 'DejaVu Sans Mono', ui-monospace, monospace">
+    <text x="196" y="49" font-size="26" font-weight="700" fill="#FABD2F">AgentTools · icp</text>
+    <text x="196" y="74" font-size="15.5" fill="#FBF1C7">Executor sequencial com relatório estruturado e seguro para IAs</text>
+    <text x="196" y="99" font-size="14" fill="#A89984">PS 7.2+<tspan fill="#665C54"> · </tspan>Gruvbox/ANSI<tspan fill="#665C54"> · </tspan>DEC 2026<tspan fill="#665C54"> · </tspan>Contrato v2</text>
+  </g>
+</svg>
