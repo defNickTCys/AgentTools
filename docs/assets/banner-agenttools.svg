@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 136" width="880" height="136" role="img" aria-labelledby="at-title at-desc">
+  <title id="at-title">AgentTools</title>
+  <desc id="at-desc">Banner do AgentTools: utilitários modulares de terminal para operadores e agentes de IA.</desc>
+  <rect x="1" y="1" width="878" height="134" rx="10" fill="#282828" stroke="#458588" stroke-width="2"/>
+  <g fill="none" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
+    <g stroke="#FBF1C7">
+      <path d="M56 79V42H88V79M60 46H84V66H60ZM60 79V70H84V79"/>
+      <path d="M112 55V42H144V55M116 55V46H126V79M140 55V46H130V79"/>
+    </g>
+    <g stroke="#83A598">
+      <path d="M52 90H56V81M64 90H60V81M52 94H64"/>
+      <path d="M80 90H84V81M92 90H88V81M80 94H92"/>
+      <path d="M122 90H126V81M134 90H130V81M122 94H134"/>
+    </g>
+  </g>
+  <g font-family="'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, 'DejaVu Sans Mono', ui-monospace, monospace">
+    <text x="196" y="49" font-size="26" font-weight="700" fill="#FABD2F">AgentTools</text>
+    <text x="196" y="74" font-size="15.5" fill="#FBF1C7">Utilitários modulares de terminal para operadores e agentes de IA</text>
+    <text x="196" y="99" font-size="14" fill="#A89984">PS 7.2+<tspan fill="#665C54"> · </tspan><tspan fill="#83A598">Core/</tspan> compartilhado<tspan fill="#665C54"> · </tspan><tspan fill="#83A598">Tools/*</tspan> sob demanda<tspan fill="#665C54"> · </tspan>Skills<tspan fill="#665C54"> · </tspan>MIT</text>
+  </g>
+</svg>
