@@ -1,10 +1,10 @@
 ﻿function icp {
     <#
     .SYNOPSIS
-    Executa cada comando do bloco UMA vez e gera um relatório estruturado para IAs ou leitura (AgentTools v0.9.5).
+    Executa cada comando do bloco UMA vez e gera um relatório estruturado para IAs ou leitura (AgentTools v1.0.0).
     .DESCRIPTION
     ╭────────────────────────────────────────────────────────────────────────╮
-    │   ╦ ╔═╗ ╔═╗   AgentTools · icp v0.9.5                                  │
+    │   ╦ ╔═╗ ╔═╗   AgentTools · icp v1.0.0                                  │
     │   ║ ║   ╠═╝   Executor com relatório compacto e seguro para IAs        │
     │   ╩ ╚═╝ ╩     PS 7.2+ · Gruvbox/Terminal · DEC 2026 · Contrato v2      │
     ╰────────────────────────────────────────────────────────────────────────╯
@@ -224,7 +224,7 @@
     icp -Help -Demo
     Executa a simulação visual animada (~4s) da barra de status sem executar comandos nem alterar a área de transferência.
     .NOTES
-    Contrato de relatório v2 em Modules/AgentTools/Tools/icp/Contracts/REPORT_CONTRACT.md.
+    Contrato de relatório v2 em Tools/icp/Contracts/REPORT_CONTRACT.md.
     Para visualização colorida com a estética TUI completa, execute: icp -Help ou icp -Help -Full.
     O layout de Get-Help segue o formatador padrão HelpV3 do PowerShell 7.
     #>

@@ -1,4 +1,4 @@
-# Ferramenta `icp` (`AgentTools 0.9.5`)
+# Ferramenta `icp` (`AgentTools 1.0.0`)
 
 O `icp` executa cada comando de um bloco `{ ... }` **uma única vez** em sequência, dentro de um escopo isolado do motor, para na primeira falha (salvo `-ContinueOnError`), mantém saída colorida na tela para o operador e gera relatório estruturado **`versao="2"`** em **XML compacto** (padrão), **JSON estrito** ou **Markdown** (área de transferência ou arquivo).
 
