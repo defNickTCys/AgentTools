@@ -35,7 +35,7 @@ Describe 'icp' {
     Context '1. Compatibilidade' {
         It 'icp { Get-Date } funciona e resulta OK' {
             $r = Invoke-IcpTeste { Get-Date }
-            (Get-Linhas $r)[0] | Should -Match '^<icp_relatorio versao="2" versao_icp="0\.9\.5" resultado="OK" ms_total="\d+">$'
+            (Get-Linhas $r)[0] | Should -Match '^<icp_relatorio versao="2" versao_icp="1\.0\.0" resultado="OK" ms_total="\d+">$'
             $r | Should -Match 'status="OK"'
             $r | Should -Match (Get-Date).Year
         }
@@ -218,7 +218,7 @@ Describe 'icp' {
             $b = [IO.File]::ReadAllBytes($arq)
             ($b[0] -eq 0xEF -and $b[1] -eq 0xBB) | Should -BeFalse
             $t = [IO.File]::ReadAllText($arq)
-            $t | Should -Match '^<icp_relatorio versao="2" versao_icp="0\.9\.5" resultado="OK" ms_total="\d+">'
+            $t | Should -Match '^<icp_relatorio versao="2" versao_icp="1\.0\.0" resultado="OK" ms_total="\d+">'
             $t | Should -Match 'linha 1\r?\n'
         }
     }
@@ -627,8 +627,8 @@ Describe 'icp' {
             finally { [Environment]::SetEnvironmentVariable('PWD', $antes) }
         }
 
-        It 'o módulo AgentTools está na versão 0.9.5' {
-            (Get-Module AgentTools).Version.ToString() | Should -Be '0.9.5'
+        It 'o módulo AgentTools está na versão 1.0.0' {
+            (Get-Module AgentTools).Version.ToString() | Should -Be '1.0.0'
         }
     }
 
@@ -950,7 +950,7 @@ git add -f \
             try {
                 $r = Invoke-IcpTeste ([scriptblock]::Create($blocoTxt))
                 $global:IcpPreVooRodou | Should -Be 0
-                $r | Should -Match '<icp_relatorio versao="2" versao_icp="0\.9\.5" resultado="BLOQUEADO no pré-voo \(0 de 4 executados\)" ms_total="\d+">'
+                $r | Should -Match '<icp_relatorio versao="2" versao_icp="1\.0\.0" resultado="BLOQUEADO no pré-voo \(0 de 4 executados\)" ms_total="\d+">'
                 $r | Should -Match '<comandos total="4" executados="0">'
                 foreach ($n in 1..4) {
                     $r | Should -Match "<comando n=""$n"" status=""NAO_EXECUTADO"">"
@@ -1439,7 +1439,7 @@ git add -f \
             try {
                 icp -Help
                 $txt = $global:IcpAj8 -join "`n"
-                $txt | Should -Match 'AgentTools · icp v0\.9\.5'
+                $txt | Should -Match 'AgentTools · icp v1\.0\.0'
                 $txt | Should -Match 'SINAIS E DIAGNÓSTICO'
                 $txt | Should -Match 'silenciosos='
                 $txt | Should -Match 'NO_COLOR'
@@ -1447,7 +1447,7 @@ git add -f \
             finally { Remove-Variable IcpAj8 -Scope Global -ErrorAction Ignore }
 
             $h = Get-Help icp
-            $h.Synopsis | Should -Match '0\.9\.5'
+            $h.Synopsis | Should -Match '1\.0\.0'
             ($h.description | Out-String) | Should -Match 'SINAIS E DIAGNÓSTICO'
         }
     }
@@ -1768,7 +1768,7 @@ git add -f \
                 $env:NO_COLOR = $null
                 icp -Help
                 $txt = $global:IcpAj13 -join "`n"
-                $txt | Should -Match 'AgentTools · icp v0\.9\.5'
+                $txt | Should -Match 'AgentTools · icp v1\.0\.0'
                 $txt | Should -Match 'GALERIA VISUAL DOS ESTADOS'
                 $txt | Should -Match 'COMPOSITOR INTERATIVO'
                 $txt | Should -Match '-KeepBlock'
@@ -1807,7 +1807,7 @@ git add -f \
                 Should -Invoke Set-Clipboard -ModuleName AgentTools -Times 0 -Exactly -Scope It
 
                 $h = Get-Help icp -Full
-                $h.Synopsis | Should -Match '0\.9\.5'
+                $h.Synopsis | Should -Match '1\.0\.0'
                 ($h.description | Out-String) | Should -Match 'REFERÊNCIA VISUAL DOS ESTADOS'
                 ((Get-Help icp -Parameter Demo).description | Out-String) | Should -Match 'simulação visual animada'
                 ((Get-Help icp -Parameter KeepBlock).description | Out-String) | Should -Match 'Mantém visível'
@@ -1939,6 +1939,47 @@ git add -f \
             }
         }
 
+        It 'icp -Help alinha as seis descrições de diagnóstico e as notas dos exemplos rápidos' {
+            $global:IcpAjudaAlinhamento = [System.Collections.Generic.List[string]]::new()
+            Mock Write-Host -ModuleName AgentTools { $global:IcpAjudaAlinhamento.Add([string]$Object) }
+            try {
+                icp -Help
+                $texto = ($global:IcpAjudaAlinhamento -join "`n") -replace '\x1b\[[0-9;?]*[a-zA-Z]', ''
+                $diagnostico = [regex]::Match($texto, '(?m)^▸ SINAIS E DIAGNÓSTICO\n(?<linhas>(?:  [^\n]+\n)+)')
+                $exemplos = [regex]::Match($texto, '(?m)^▸ EXEMPLOS RÁPIDOS\n(?<linhas>(?:  [^\n]+\n)+)')
+                $diagnostico.Success | Should -BeTrue
+                $exemplos.Success | Should -BeTrue
+
+                $linhas = $diagnostico.Groups['linhas'].Value.TrimEnd() -split '\n'
+                $descricoes = @(
+                    'Status na tela'
+                    'Nenhum comando'
+                    'Erros novos'
+                    'Filhos ativos'
+                    'Metadados estruturais'
+                    'Prioriza até 5'
+                )
+                $linhas.Count | Should -Be $descricoes.Count
+                $colunas = for ($i = 0; $i -lt $descricoes.Count; $i++) {
+                    $descricao = $descricoes[$i]
+                    $linhas[$i] | Should -Match ('^  \S.*\S {2,}' + [regex]::Escape($descricao))
+                    $linhas[$i].IndexOf($descricao, [StringComparison]::Ordinal)
+                }
+                @($colunas | Sort-Object -Unique).Count | Should -Be 1
+
+                $linhasComNota = @($exemplos.Groups['linhas'].Value -split '\n' | Where-Object { $_.Contains('#') })
+                $linhasComNota.Count | Should -Be 7
+                $colunas = foreach ($linha in $linhasComNota) {
+                    $linha | Should -Match '^  icp(?:.*\S)? {2,}# '
+                    $linha.IndexOf('#', [StringComparison]::Ordinal)
+                }
+                @($colunas | Sort-Object -Unique).Count | Should -Be 1
+            }
+            finally {
+                Remove-Variable IcpAjudaAlinhamento -Scope Global -ErrorAction Ignore
+            }
+        }
+
         It 'icp -Help colore OK/FALHOU/NAO_EXECUTADO separadamente, -Help -Full mostra referência completa e Get-Help -Full tem INPUTS/OUTPUTS' {
             $ncAntes = $env:NO_COLOR
             $global:IcpAj14 = [System.Collections.Generic.List[string]]::new()
@@ -2048,7 +2089,7 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
                 $rawJson = & pwsh -NoProfile -NoLogo -File $runner
                 $LASTEXITCODE | Should -Be 0
                 $res = ($rawJson | Select-Object -Last 1) | ConvertFrom-Json
-                $res.Version | Should -Be '0.9.5'
+                $res.Version | Should -Be '1.0.0'
                 $res.Antes.Loaded | Should -BeFalse
                 $res.Antes.HasCoreLoad | Should -BeTrue
                 $res.Antes.HasCoreMask | Should -BeTrue
@@ -2103,7 +2144,7 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
             Test-Path -LiteralPath (Join-Path (Get-Module AgentTools).ModuleBase 'XML_CONTRACT.md') | Should -BeFalse
 
             $rOk = Invoke-IcpTeste { 'ok-xml' } @{ Explain = $true }
-            $rOk | Should -Match '<icp_relatorio versao="2" versao_icp="0\.9\.5" resultado="OK" ms_total="\d+" flags="explain">'
+            $rOk | Should -Match '<icp_relatorio versao="2" versao_icp="1\.0\.0" resultado="OK" ms_total="\d+" flags="explain">'
             $idxAviso = $rOk.IndexOf('<aviso>')
             $idxLeg = $rOk.IndexOf('<legenda>')
             $idxAmb = $rOk.IndexOf('<ambiente>')
@@ -2122,7 +2163,7 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
             $rComFalhas | Should -Match 'flags="continue_on_error"'
 
             $rSum = Invoke-IcpTeste { 'linha-sum-' + ('a' * 200) } @{ MaxClipboardChars = 50 }
-            $rSum | Should -Match '<icp_relatorio versao="2" versao_icp="0\.9\.5" resultado="OK" ms_total="\d+" completo="arquivo">'
+            $rSum | Should -Match '<icp_relatorio versao="2" versao_icp="1\.0\.0" resultado="OK" ms_total="\d+" completo="arquivo">'
             $rSum | Should -Match 'linhas="\d+" chars="\d+"'
             $rSum | Should -Match '<previa>linha-sum-'
             $rSum | Should -Match '1 OK, 0 falharam, 0 não executados'
@@ -2262,9 +2303,12 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
     }
 
     Context 'Ajuste 16. Isolamento do motor, hardening 0.9.5, contrato v2 (-Format xml|json|markdown) e disco' {
-        It 'manifesto exige PowerShellVersion >= 7.2 e versão 0.9.5' {
+        It 'manifesto exige PowerShellVersion >= 7.2 e inclui os metadados públicos da versão 1.0.0' {
             $psd = Import-PowerShellDataFile -LiteralPath (Join-Path (Get-Module AgentTools).ModuleBase 'AgentTools.psd1')
-            $psd.ModuleVersion | Should -BeExactly '0.9.5'
+            $psd.ModuleVersion | Should -BeExactly '1.0.0'
+            $psd.Author | Should -BeExactly 'defNickTCys'
+            $psd.PrivateData.PSData.ProjectUri | Should -BeExactly 'https://github.com/defNickTCys/AgentTools'
+            $psd.PrivateData.PSData.LicenseUri | Should -BeExactly 'https://github.com/defNickTCys/AgentTools/blob/main/LICENSE'
             $psd.PowerShellVersion | Should -BeExactly '7.2'
         }
 
@@ -2377,7 +2421,7 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
             $rawJson = Invoke-IcpTeste { 'ola-json'; cmd /c "exit 1" } @{ Format = 'json'; AllowedExitCodes = @(1); Explain = $true }
             $obj = $rawJson | ConvertFrom-Json
             $obj.versao | Should -Be 2
-            $obj.versao_icp | Should -Be '0.9.5'
+            $obj.versao_icp | Should -Be '1.0.0'
             $obj.formato | Should -Be 'json'
             $obj.modo | Should -Be 'completo'
             $obj.resultado | Should -Be 'OK'
@@ -2404,7 +2448,7 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
 
         It '-Format markdown gera cercas dinâmicas seguras para crases internas, fecha cerca em teto e escapa inline' {
             $md = Invoke-IcpTeste { '```powershell'; 'Write-Output 1'; '```' } @{ Format = 'markdown' }
-            $md | Should -Match '# Relatório icp v0\.9\.5 \(versao 2\)'
+            $md | Should -Match '# Relatório icp v1\.0\.0 \(versao 2\)'
             $md | Should -Match '````text'
             $md | Should -Match 'Write-Output 1'
 

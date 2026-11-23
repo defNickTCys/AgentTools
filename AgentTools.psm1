@@ -7,9 +7,9 @@ $script:AgentToolsVersion = try {
     [string](Import-PowerShellDataFile -LiteralPath $__psdPath).ModuleVersion
 }
 catch {
-    '0.9.5'
+    '1.0.0'
 }
-if ([string]::IsNullOrWhiteSpace($script:AgentToolsVersion)) { $script:AgentToolsVersion = '0.9.5' }
+if ([string]::IsNullOrWhiteSpace($script:AgentToolsVersion)) { $script:AgentToolsVersion = '1.0.0' }
 Remove-Variable -Name '__psdPath' -ErrorAction Ignore
 $script:AgentToolsTypeNamespace = 'AgentTools.V' + ($script:AgentToolsVersion -replace '[^0-9A-Za-z]', '_')
 $script:IcpProfundidade = 0

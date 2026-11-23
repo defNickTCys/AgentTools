@@ -15,7 +15,7 @@ Este documento especifica o formato único **`versao="2"`** gerado pelo `icp` (`
 ### XML (`-Format xml`, padrão)
 
 ```xml
-<icp_relatorio versao="2" versao_icp="0.9.5" resultado="..." ms_total="42">
+<icp_relatorio versao="2" versao_icp="1.0.0" resultado="..." ms_total="42">
   ...
 </icp_relatorio>
 ```
@@ -25,7 +25,7 @@ Atributos da raiz `<icp_relatorio>`:
 | Atributo | Obrigatório | Valores possíveis | Descrição |
 |---|---|---|---|
 | `versao` | Sim | `"2"` | Versão do esquema do relatório. |
-| `versao_icp` | Sim | SemVer (ex.: `"0.9.5"`) | Versão do `AgentTools`/`icp` que produziu o relatório. |
+| `versao_icp` | Sim | SemVer (ex.: `"1.0.0"`) | Versão do `AgentTools`/`icp` que produziu o relatório. |
 | `resultado` | Sim | Ver tabela canônica abaixo | Desfecho consolidado do lote. |
 | `ms_total` | Sim | Inteiro `\d+` | Duração total do lote em milissegundos. |
 | `flags` | Condicional | Lista separada por `,` | Presente apenas quando há flags não-padrão ativas (`explain`, `raw`, `continue_on_error`, `step`, `no_mask`, `allow_trailing_backslash`, `allowed_exit_codes=1\|3`, `timeout=30s`). |
@@ -115,7 +115,7 @@ Na `versao="2"`, `<entrada>` está **sempre presente** (inclusive em atribuiçõ
 ### JSON (`-Format json`)
 
 Objeto raiz com chaves canônicas:
-- `versao` (`2`), `versao_icp` (`"0.9.5"`), `formato` (`"json"`), `modo` (`"compacto"` ou `"completo"`), `resultado`, `ms_total`, `flags` (array), `completo` (opcional, `"arquivo"`).
+- `versao` (`2`), `versao_icp` (`"1.0.0"`), `formato` (`"json"`), `modo` (`"compacto"` ou `"completo"`), `resultado`, `ms_total`, `flags` (array), `completo` (opcional, `"arquivo"`).
 - `aviso`, `aviso_pre_voo` (opcional), `legenda` (opcional).
 - `ambiente`: `{ diretorio, git_branch, data, fuso, pwd_env_definido, mascara: { ligada, trechos_ocultados } }` (+ `powershell`, `windows`, `cultura`, `admin` com `-Explain`).
 - `resumo`: `{ total, executados, ok, falharam, nao_executados }`.

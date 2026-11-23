@@ -48,12 +48,42 @@
 
     Write-Host ''
     Write-Host (Format-IcpCor '▸ SINAIS E DIAGNÓSTICO' 'Ambar' -Negrito)
-    Write-Host "  $(Format-IcpCor '✓ OK' 'Oliva' -Negrito) $(Format-IcpCor '/' 'Pedra') $(Format-IcpCor '✗ FALHOU' 'Terracota' -Negrito) $(Format-IcpCor '/' 'Pedra') $(Format-IcpCor 'NAO_EXECUTADO' 'Pedra')  Status na tela e em <comando status=""..."">"
-    Write-Host "  $(Format-IcpCor '[PRE-VOO] BLOQUEADO' 'Terracota')              Nenhum comando rodou (executados=""0"")"
-    Write-Host "  $(Format-IcpCor 'silenciosos=""N""' 'Laranja')                  Erros novos em `$global:Error ([SILENCIOSO])"
-    Write-Host "  $(Format-IcpCor 'segundo_plano=""proc#pid""' 'Laranja')         Filhos ativos ao fim do comando ([SEGUNDO PLANO])"
-    Write-Host "  $(Format-IcpCor 'exit_permitido / flags / ms_total' 'PetroleoClaro') Metadados estruturais do relatório v2"
-    Write-Host "  $(Format-IcpCor '<erro> / <previa> (resumo)' 'PetroleoClaro')      Prioriza até 5 [ERRO] ou prévia da 1ª linha OK"
+    $sinais = @(
+        @{
+            Plain  = '✓ OK / ✗ FALHOU / NAO_EXECUTADO'
+            Styled = "$(Format-IcpCor '✓ OK' 'Oliva' -Negrito) $(Format-IcpCor '/' 'Pedra') $(Format-IcpCor '✗ FALHOU' 'Terracota' -Negrito) $(Format-IcpCor '/' 'Pedra') $(Format-IcpCor 'NAO_EXECUTADO' 'Pedra')"
+            Desc   = 'Status na tela e em <comando status="...">'
+        }
+        @{
+            Plain  = '[PRE-VOO] BLOQUEADO'
+            Styled = Format-IcpCor '[PRE-VOO] BLOQUEADO' 'Terracota'
+            Desc   = 'Nenhum comando rodou (executados="0")'
+        }
+        @{
+            Plain  = 'silenciosos="N"'
+            Styled = Format-IcpCor 'silenciosos="N"' 'Laranja'
+            Desc   = 'Erros novos em $global:Error ([SILENCIOSO])'
+        }
+        @{
+            Plain  = 'segundo_plano="proc#pid"'
+            Styled = Format-IcpCor 'segundo_plano="proc#pid"' 'Laranja'
+            Desc   = 'Filhos ativos ao fim do comando ([SEGUNDO PLANO])'
+        }
+        @{
+            Plain  = 'exit_permitido / flags / ms_total'
+            Styled = Format-IcpCor 'exit_permitido / flags / ms_total' 'PetroleoClaro'
+            Desc   = 'Metadados estruturais do relatório v2'
+        }
+        @{
+            Plain  = '<erro> / <previa> (resumo)'
+            Styled = Format-IcpCor '<erro> / <previa> (resumo)' 'PetroleoClaro'
+            Desc   = 'Prioriza até 5 [ERRO] ou prévia da 1ª linha OK'
+        }
+    )
+    $colSinais = ($sinais | ForEach-Object { $_.Plain.Length } | Measure-Object -Maximum).Maximum + 2
+    foreach ($sinal in $sinais) {
+        Write-Host "  $($sinal.Styled)$(' ' * ($colSinais - $sinal.Plain.Length))$($sinal.Desc)"
+    }
 
     Write-Host ''
     Write-Host (Format-IcpCor '▸ COMPOSITOR INTERATIVO (icp sem argumentos)' 'Ambar' -Negrito)
@@ -121,10 +151,11 @@
         @{ Cmd = 'icp -Help -Full'; Nota = '# referência completa colorida na TUI' }
         @{ Cmd = 'icp -Help -Demo'; Nota = '# simulação animada da barra' }
     )
+    $colEx = (($exRapidos | Where-Object { $_.Nota } | ForEach-Object { $_.Cmd.Length } | Measure-Object -Maximum).Maximum) + 2
     foreach ($ex in $exRapidos) {
         $codCol = Format-IcpComandoColorido -Texto $ex.Cmd
         if ($ex.Nota) {
-            $esp = [Math]::Max(2, 52 - $ex.Cmd.Length)
+            $esp = [Math]::Max(2, $colEx - $ex.Cmd.Length)
             Write-Host "  $codCol$(' ' * $esp)$(Format-IcpCor $ex.Nota 'Pedra')"
         }
         else {

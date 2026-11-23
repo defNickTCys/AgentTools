@@ -303,7 +303,7 @@ function Show-IcpInicioCartao {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
         Justification = 'Exibe o cartão de abertura do compositor interativo no terminal.')]
     param([int]$WindowWidth = 120)
-    $ver = if ($script:AgentToolsVersion) { $script:AgentToolsVersion } else { '0.9.5' }
+    $ver = if ($script:AgentToolsVersion) { $script:AgentToolsVersion } else { '1.0.0' }
     $dir = (Get-Location).Path
     $git = ''
     if ((Get-Location).Provider.Name -eq 'FileSystem' -and (Get-Command git -CommandType Application -ErrorAction Ignore)) {

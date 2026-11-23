@@ -1,6 +1,6 @@
 ﻿@{
     Name              = 'icp'
-    Version           = '0.9.5'
+    Version           = '1.0.0'
     Entrypoint        = 'icp.ps1'
     ExportedFunctions = @('icp')
     RequiresCore      = @('Loader', 'Masking', 'Theme', 'Terminal', 'Process')

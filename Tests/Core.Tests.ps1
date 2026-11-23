@@ -1,5 +1,5 @@
 ﻿# Testes do núcleo compartilhado Core/ do AgentTools. Rode em processo filho limpo:
-#   pwsh -NoProfile -NoLogo -Command "Import-Module Pester -MinimumVersion 5.0; Invoke-Pester Modules/AgentTools/Tests/Core.Tests.ps1"
+#   pwsh -NoProfile -NoLogo -Command "Import-Module Pester -MinimumVersion 5.0; Invoke-Pester .\Tests\Core.Tests.ps1"
 
 BeforeAll {
     $__mod = if ($env:AGENTTOOLS_TEST_MODULE) { $env:AGENTTOOLS_TEST_MODULE } else { Join-Path $PSScriptRoot '..\AgentTools.psd1' }
@@ -332,7 +332,7 @@ Describe 'AgentTools Core' {
                 $pt = Get-AgentToolsProcessTreeType
                 $pt | Should -Not -BeNullOrEmpty
                 $pt.Namespace | Should -BeExactly $script:AgentToolsTypeNamespace
-                $pt.Namespace | Should -Match '^AgentTools\.V0_9_5$'
+                $pt.Namespace | Should -Match '^AgentTools\.V1_0_0$'
 
                 $myCt = $pt::GetProcessCreationTime($PID)
                 $myCt | Should -BeGreaterThan 0
