@@ -84,6 +84,12 @@ O contrato `versao="2"` registra o resultado do bloco, o estado de cada comando,
 
 O conteúdo capturado na saída dos comandos é dado bruto. Consulte os campos de cada formato e as regras de resumo e truncamento no [contrato do relatório](Tools/icp/Contracts/REPORT_CONTRACT.md).
 
+## Skill para agentes de IA
+
+O repositório inclui a skill oficial do `icp` no padrão aberto *Agent Skills* em [skills/icp/SKILL.md](skills/icp/SKILL.md), alinhada ao contrato `versao="2"` e aos parâmetros da `1.0.0`.
+
+Ela pode ser instalada com `npx skills add defNickTCys/AgentTools` ou vinculada diretamente a partir do diretório `skills/icp` do seu clone local.
+
 ## Verificação
 
 Na raiz do repositório, em um processo limpo iniciado com `pwsh -NoProfile -NoLogo`, execute:
