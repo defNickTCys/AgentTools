@@ -1,0 +1,5 @@
+Tools/*/native/target/
+Tools/*/bin/
+Tools/*/native/bin/
+*.bak*
+.alethe/

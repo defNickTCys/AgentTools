@@ -1,0 +1,11 @@
+* text=auto
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.md text eol=crlf
+AGENTS.md text eol=lf
+LICENSE text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

@@ -1,0 +1,153 @@
+name: AgentTools CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'task-*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate PowerShell Module
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check BOM and EOL conventions
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $errors = [System.Collections.Generic.List[string]]::new()
+
+          $psFiles = Get-ChildItem -Path '.' -Recurse -File -Include '*.ps1', '*.psm1', '*.psd1' | Where-Object { $_.FullName -notmatch '[\\/](\.git|\.alethe)[\\/]' }
+          if ($psFiles.Count -eq 0) {
+            throw 'Nenhum arquivo .ps*1 encontrado na raiz.'
+          }
+          foreach ($f in $psFiles) {
+            $b = [System.IO.File]::ReadAllBytes($f.FullName)
+            if ($b.Length -lt 3 -or $b[0] -ne 0xEF -or $b[1] -ne 0xBB -or $b[2] -ne 0xBF) {
+              $errors.Add("Falta UTF-8 BOM em: $($f.FullName)")
+            }
+            $txt = [System.IO.File]::ReadAllText($f.FullName)
+            if (-not $txt.Contains("`r`n")) {
+              $errors.Add("Esperado CRLF em: $($f.FullName)")
+            }
+            $semCrlf = $txt.Replace("`r`n", '')
+            if ($semCrlf.Contains("`n") -or $semCrlf.Contains("`r")) {
+              $errors.Add("LF ou CR solto encontrado em: $($f.FullName)")
+            }
+          }
+
+          foreach ($lfRel in @('AGENTS.md', 'LICENSE', '.gitattributes', '.gitignore', '.github/workflows/ci.yml')) {
+            if (-not (Test-Path -LiteralPath $lfRel)) {
+              $errors.Add("Arquivo ausente: $lfRel")
+              continue
+            }
+            $b = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $lfRel).Path)
+            if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) {
+              $errors.Add("BOM proibido em arquivo LF: $lfRel")
+            }
+            $txt = [System.Text.Encoding]::UTF8.GetString($b)
+            if ($txt.Contains("`r`n") -or $txt.Contains("`r")) {
+              $errors.Add("CRLF ou CR proibido em arquivo LF: $lfRel")
+            }
+          }
+
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+          Write-Host "BOM/CRLF/LF OK ($($psFiles.Count) arquivos .ps*1 verificados)."
+
+      - name: Install pinned Pester and PSScriptAnalyzer
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version -eq [version]'6.2.0' })) {
+            Install-Module -Name Pester -RequiredVersion 6.2.0 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck
+          }
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer | Where-Object { $_.Version -eq [version]'1.25.0' })) {
+            Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.25.0 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+          }
+
+      - name: Validate AgentTools manifest
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $psd = Import-PowerShellDataFile -LiteralPath 'AgentTools.psd1'
+          $m = Test-ModuleManifest -Path 'AgentTools.psd1' -ErrorAction Stop
+          if ($m.Version.ToString() -ne [string]$psd.ModuleVersion) {
+            throw "Versão divergente no manifesto: $($m.Version) vs $($psd.ModuleVersion)"
+          }
+          if ([version]$m.PowerShellVersion -lt [version]'7.2') {
+            throw "PowerShellVersion inesperada no manifesto: $($m.PowerShellVersion)"
+          }
+          $exports = @($m.ExportedFunctions.Keys)
+          if ($exports.Count -ne 1 -or $exports[0] -ne 'icp') {
+            throw "Exportações inesperadas no manifesto: $($exports -join ', ')"
+          }
+          Write-Host "Manifest OK: $($m.Version) (PS >= $($m.PowerShellVersion)) | Exports: $($exports -join ', ')"
+
+      - name: Run PSScriptAnalyzer across all rules
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force
+          $rules = @(Get-ScriptAnalyzerRule | Select-Object -ExpandProperty RuleName)
+          $files = @(Get-ChildItem -Path '.' -Recurse -File -Include '*.ps1', '*.psm1', '*.psd1' | Where-Object { $_.FullName -notmatch '[\\/](Tests|\.git|\.alethe)[\\/]' })
+          $findings = [System.Collections.Generic.List[object]]::new()
+
+          foreach ($f in $files) {
+            $def = Get-Content -LiteralPath $f.FullName -Raw
+            foreach ($rule in $rules) {
+              $res = @(Invoke-ScriptAnalyzer -ScriptDefinition $def -IncludeRule $rule)
+              foreach ($item in $res) {
+                $findings.Add([pscustomobject]@{
+                  File     = $f.FullName
+                  Line     = $item.Line
+                  RuleName = $item.RuleName
+                  Severity = $item.Severity
+                  Message  = $item.Message
+                })
+              }
+            }
+          }
+
+          if ($findings.Count -gt 0) {
+            $findings | Format-Table -AutoSize
+            throw "PSScriptAnalyzer encontrou $($findings.Count) achado(s)."
+          }
+          Write-Host "PSScriptAnalyzer OK: 0 achados ($($rules.Count) regras x $($files.Count) arquivos)."
+
+      - name: Run Pester unit suite (clean process)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -NoLogo -Command {
+            $ErrorActionPreference = 'Stop'
+            Import-Module Pester -RequiredVersion 6.2.0 -Force
+            $cfg = New-PesterConfiguration
+            $cfg.Run.Path = @('Tests')
+            $cfg.Filter.ExcludeTag = @('InteractiveConsole')
+            $cfg.Run.PassThru = $true
+            $cfg.Output.Verbosity = 'Normal'
+            $r = Invoke-Pester -Configuration $cfg
+            Write-Host "Pester Result=$($r.Result) Passed=$($r.PassedCount) Failed=$($r.FailedCount) Skipped=$($r.SkippedCount)"
+            if ($r.Result -ne 'Passed' -or $r.FailedCount -gt 0 -or $r.PassedCount -eq 0) {
+              exit 1
+            }
+          }
