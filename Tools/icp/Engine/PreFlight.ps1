@@ -11,6 +11,122 @@
     return $false
 }
 
+function Test-IcpInterativoDireto {
+    # True se o statement pode invocar executável nativo ou script externo diretamente no console (sem pipe Out-Host).
+    param($Ast, [bool]$EhNativo)
+    if ($EhNativo) { return $true }
+    if ($null -eq $Ast) { return $false }
+    $cmds = $Ast.FindAll({ param($a) $a -is [System.Management.Automation.Language.CommandAst] }, $true)
+    foreach ($c in $cmds) {
+        if ($c.InvocationOperator -in 'Dot', 'Ampersand' -and $c.CommandElements.Count -gt 0 -and
+            $c.CommandElements[0] -is [System.Management.Automation.Language.ScriptBlockExpressionAst]) {
+            return $true
+        }
+        $nome = $c.GetCommandName()
+        if (-not $nome) { continue }
+        if ($nome -match '\.ps1$' -or $nome -eq 'Start-Process') { return $true }
+        $info = Get-Command $nome -ErrorAction Ignore | Select-Object -First 1
+        if ($info -and $info.CommandType -eq 'ExternalScript') { return $true }
+    }
+    return $false
+}
+
+function Get-IcpStatementMeta {
+    # Extrai metadados de comentários imediatamente anteriores (#* rótulo e #* interactive) alinhados a cada statement.
+    param(
+        [System.Management.Automation.Language.ScriptBlockAst]$Ast,
+        [switch]$AllowPlainComments
+    )
+    if ($null -eq $Ast -or $null -eq $Ast.EndBlock) { return @() }
+    $stmts = @($Ast.EndBlock.Statements)
+    if ($stmts.Count -eq 0) { return @() }
+
+    $astText = $Ast.Extent.Text
+    $baseLine = $Ast.Extent.StartLineNumber
+    $baseOffset = $Ast.Extent.StartOffset
+    $tokens = $null
+    $parseErrors = $null
+    $null = [System.Management.Automation.Language.Parser]::ParseInput($astText, [ref]$tokens, [ref]$parseErrors)
+
+    $commentsByLine = @{}
+    foreach ($tok in @($tokens)) {
+        if ($tok.Kind -ne 'Comment') { continue }
+        if ($tok.Extent.StartLineNumber -ne $tok.Extent.EndLineNumber) { continue }
+        if (-not $tok.Text.StartsWith('#')) { continue }
+        $ln = $tok.Extent.StartLineNumber
+        if (-not $commentsByLine.ContainsKey($ln)) {
+            $commentsByLine[$ln] = [System.Collections.Generic.List[object]]::new()
+        }
+        $commentsByLine[$ln].Add($tok)
+    }
+
+    $metas = [System.Collections.Generic.List[object]]::new($stmts.Count)
+    for ($i = 0; $i -lt $stmts.Count; $i++) {
+        $st = $stmts[$i]
+        $relStart = $st.Extent.StartOffset - $baseOffset
+        $relLine = $st.Extent.StartLineNumber - $baseLine + 1
+        $prevEnd = if ($i -gt 0) { $stmts[$i - 1].Extent.EndOffset - $baseOffset } else { -1 }
+        $prevEndLine = if ($i -gt 0) { $stmts[$i - 1].Extent.EndLineNumber - $baseLine + 1 } else { 0 }
+
+        $linhasCom = [System.Collections.Generic.List[string]]::new()
+        $targetLine = $relLine - 1
+        while ($targetLine -gt $prevEndLine) {
+            if (-not $commentsByLine.ContainsKey($targetLine)) { break }
+            $candidato = $null
+            foreach ($ct in $commentsByLine[$targetLine]) {
+                if ($ct.Extent.StartOffset -gt $prevEnd -and $ct.Extent.EndOffset -le $relStart) {
+                    $candidato = $ct.Text
+                }
+            }
+            if ($null -eq $candidato) { break }
+            $linhasCom.Add($candidato)
+            $targetLine--
+        }
+
+        $starRotulo = $null
+        $plainRotulo = $null
+        $interativo = $false
+        for ($k = $linhasCom.Count - 1; $k -ge 0; $k--) {
+            $txt = $linhasCom[$k]
+            if ($txt -match '^#\*\s*interactive\s*$') {
+                $interativo = $true
+            }
+            elseif ($txt -match '^#\*\s*interactive\s*[:\-]\s*(.+?)\s*$') {
+                $interativo = $true
+                $starRotulo = $Matches[1].Trim()
+            }
+            elseif ($txt -match '^#\*\s*\[interactive\]\s*(.*?)\s*$') {
+                $interativo = $true
+                if (-not [string]::IsNullOrWhiteSpace($Matches[1])) {
+                    $starRotulo = $Matches[1].Trim()
+                }
+            }
+            elseif ($txt -match '^#\*\s*(.+?)\s*$') {
+                $starRotulo = $Matches[1].Trim()
+            }
+            elseif ($AllowPlainComments -and $txt -match '^#(?!\*)\s*(.+?)\s*$') {
+                $plainRotulo = $Matches[1].Trim()
+            }
+        }
+
+        $rotuloFinal = if (-not [string]::IsNullOrWhiteSpace($starRotulo)) {
+            $starRotulo
+        }
+        elseif ($AllowPlainComments -and -not [string]::IsNullOrWhiteSpace($plainRotulo)) {
+            $plainRotulo
+        }
+        else {
+            $null
+        }
+
+        $metas.Add([pscustomobject]@{
+            Rotulo     = $rotuloFinal
+            Interativo = [bool]$interativo
+        })
+    }
+    return $metas.ToArray()
+}
+
 function Test-IcpPodeForcarCorNativa {
     # True apenas para comando nativo isolado seguro para colorir na tela (respeita AGENTTOOLS_ICP_NOFORCECOLOR e exceções).
     param($Ast, [bool]$EhNativo)

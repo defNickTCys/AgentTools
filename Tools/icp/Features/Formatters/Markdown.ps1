@@ -64,8 +64,9 @@ function Format-IcpReportMarkdown {
 
     foreach ($c in $Model.comandos) {
         $linhas.Add('')
+        $rotSufixo = if (-not [string]::IsNullOrWhiteSpace($c.rotulo)) { " — $($c.rotulo)" } else { '' }
         if ($c.status -eq 'NAO_EXECUTADO') {
-            $linhas.Add("### [$($c.n)/$($Model.resumo.total)] NAO_EXECUTADO")
+            $linhas.Add("### [$($c.n)/$($Model.resumo.total)] NAO_EXECUTADO$rotSufixo")
             $linhas.Add('')
             $ent = if ($Summary) { @($c.entrada_resumo) } else { @($c.entrada -split '\r?\n') }
             $fEnt = Get-IcpMarkdownFence -Lines $ent
@@ -77,14 +78,18 @@ function Format-IcpReportMarkdown {
 
         $meta = [System.Collections.Generic.List[string]]::new()
         $meta.Add("$($c.ms) ms")
+        if ($c.interativo) { $meta.Add('interativo=true') }
         if ($null -ne $c.exit) { $meta.Add("exit=$($c.exit)") }
         if ($c.exit_permitido) { $meta.Add('exit_permitido=true') }
         if ($c.silenciosos -gt 0) { $meta.Add("silenciosos=$($c.silenciosos)") }
         $spItens = @($c.segundo_plano | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         if ($spItens.Count -gt 0) { $meta.Add("segundo_plano=$($spItens -join ', ')") }
+        $filhoItens = @($c.filho | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        if ($filhoItens.Count -gt 0) { $meta.Add("filho=$($filhoItens -join ', ')") }
+        if ($null -ne $c.sem_saida_s) { $meta.Add("sem_saida_s=$($c.sem_saida_s)s") }
         if ($Summary) { $meta.Add("linhas=$($c.linhas), chars=$($c.chars)") }
 
-        $linhas.Add("### [$($c.n)/$($Model.resumo.total)] $($c.status) ($($meta -join ' · '))")
+        $linhas.Add("### [$($c.n)/$($Model.resumo.total)] $($c.status)$rotSufixo ($($meta -join ' · '))")
         $linhas.Add('')
         $ent = if ($Summary) { @($c.entrada_resumo) } else { @($c.entrada -split '\r?\n') }
         $fEnt = Get-IcpMarkdownFence -Lines $ent
@@ -95,7 +100,7 @@ function Format-IcpReportMarkdown {
         $linhas.Add($fEnt)
 
         if ($Summary) {
-            if ($c.status -eq 'FALHOU' -and $c.erro_resumo.Count -gt 0) {
+            if ($c.status -in 'FALHOU', 'INTERROMPIDO' -and $c.erro_resumo.Count -gt 0) {
                 $fErr = Get-IcpMarkdownFence -Lines $c.erro_resumo
                 $linhas.Add('')
                 $linhas.Add('**Erro (resumo):**')

@@ -30,19 +30,24 @@
     foreach ($c in $Model.comandos) {
         if ($c.status -eq 'NAO_EXECUTADO') {
             $ent = if ($Summary) { $c.entrada_resumo } else { $c.entrada }
-            $linhas.Add("<comando n=""$($c.n)"" status=""NAO_EXECUTADO""><entrada>$(Protect-IcpTexto $ent)</entrada></comando>")
+            $rotAttr = if (-not [string]::IsNullOrWhiteSpace($c.rotulo)) { " rotulo=""$(Protect-IcpAtributo $c.rotulo)""" } else { '' }
+            $linhas.Add("<comando n=""$($c.n)"" status=""NAO_EXECUTADO""$rotAttr><entrada>$(Protect-IcpTexto $ent)</entrada></comando>")
             continue
         }
         $attr = Get-IcpAtributosComando -Registro ([pscustomobject]@{
-            Exit         = $c.exit
+            Exit          = $c.exit
             ExitPermitido = $c.exit_permitido
-            Ms           = $c.ms
-            Silenciosos  = $c.silenciosos
-            SegundoPlano = $c.segundo_plano
+            Ms            = $c.ms
+            Silenciosos   = $c.silenciosos
+            SegundoPlano  = $c.segundo_plano
+            Rotulo        = $c.rotulo
+            Interativo    = $c.interativo
+            Filho         = $c.filho
+            SemSaidaS     = $c.sem_saida_s
         })
         if ($Summary) {
             $extra = ''
-            if ($c.status -eq 'FALHOU' -and $c.erro_resumo.Count -gt 0) {
+            if ($c.status -in 'FALHOU', 'INTERROMPIDO' -and $c.erro_resumo.Count -gt 0) {
                 $errL = @($c.erro_resumo | ForEach-Object { Protect-IcpTexto $_ })
                 $extra = "<erro>$($errL -join "`r`n")</erro>"
             }

@@ -1,13 +1,13 @@
 ﻿function Get-AgentToolsProcessTreeType {
     # Retorna o tipo .NET versionado ProcessTree carregado para a versão atual do módulo.
-    $ns = if ($script:AgentToolsTypeNamespace) { $script:AgentToolsTypeNamespace } else { 'AgentTools.V0_9_5' }
+    $ns = if ($script:AgentToolsTypeNamespace) { $script:AgentToolsTypeNamespace } else { 'AgentTools.V1_1_0' }
     return ("$ns.ProcessTree" -as [type])
 }
 
 function Initialize-AgentToolsProcessTree {
     # Compila sob demanda o snapshot Win32 da árvore de processos filhos com validação GetProcessTimes (sem carregar no import).
     if ($null -ne (Get-AgentToolsProcessTreeType)) { return $true }
-    $ns = if ($script:AgentToolsTypeNamespace) { $script:AgentToolsTypeNamespace } else { 'AgentTools.V0_9_5' }
+    $ns = if ($script:AgentToolsTypeNamespace) { $script:AgentToolsTypeNamespace } else { 'AgentTools.V1_1_0' }
     $src = @"
 using System;
 using System.Collections.Generic;
@@ -274,9 +274,9 @@ function Get-AgentToolsProcessBaseline {
 function Get-AgentToolsNewChild {
     # Retorna lista ordenada 'nome#pid' de descendentes criados após o baseline (validando tempo de criação).
     param([int]$RootPid = $PID, $Baseline)
-    if (-not (Initialize-AgentToolsProcessTree)) { return , [string[]]@() }
+    if (-not (Initialize-AgentToolsProcessTree)) { return [string[]]@() }
     $pt = Get-AgentToolsProcessTreeType
-    return , [string[]]@($pt::GetNewChildren($RootPid, $Baseline))
+    return [string[]]@($pt::GetNewChildren($RootPid, $Baseline))
 }
 
 function Stop-AgentToolsNewChild {
@@ -284,7 +284,7 @@ function Stop-AgentToolsNewChild {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Auxiliar privado de limpeza de processos filhos em timeout ou interrupção.')]
     param([int]$RootPid = $PID, $Baseline)
-    if (-not (Initialize-AgentToolsProcessTree)) { return , [string[]]@() }
+    if (-not (Initialize-AgentToolsProcessTree)) { return [string[]]@() }
     $pt = Get-AgentToolsProcessTreeType
-    return , [string[]]@($pt::KillNewChildren($RootPid, $Baseline))
+    return [string[]]@($pt::KillNewChildren($RootPid, $Baseline))
 }

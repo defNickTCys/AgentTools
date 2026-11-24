@@ -19,8 +19,54 @@ $script:IcpSegredos = @(
     ,@('(?i)\b((?:Proxy-)?Authorization(?:\\?["''])?[ \t]*:[ \t]*(?:\\?["''])?Basic[ \t]+)(?!\[segredo ocultado: [a-z-]+\](?:\\?["''])?(?:[\s,;\}\]\)]|$))[A-Za-z0-9+/=_-]{2,}', '$1[segredo ocultado: basic-auth]')
     ,@('(://[^\s:/@]+:)(?!\[segredo ocultado: [a-z-]+\](?:@|$))[^\s@/]+(?=@)', '$1[segredo ocultado: senha-url]')
     ,@('(?im)^((?:\[ERRO\] )?[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Z0-9_]*[ \t]{2,})(?!\[segredo ocultado: [a-z-]+\][ \t]*$)\S.*$', '$1[segredo ocultado: ambiente]')
-    ,@('(?i)\b(?!(?:[\w.-]*(?:tokens(?:[_-](?:in|out|input|output|read|write|cached?|used|total|count|limit|max|min|per[_-]\w+|rate|cost|budget))?|token[_-](?:count|limit|max|min|total|used|usage|budget|rate|cost|ttl|expir\w*|len|length|size|window|price))|(?:has|is|use|enable|require|allow|with)[_-](?:password|passwd|secret|token|api[_-]?key|access[_-]?key))(?:\\?["''])?[ \t]*[:=])([\w.-]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key)[\w.-]*(?:\\?["''])?[ \t]*[:=][ \t]*)(?!\\?["'']?\[segredo ocultado: [a-z-]+\](?:\\?["''])?(?:[\s,;\}\]\)]|$))(?!\[\s*\])(?![$({\}\]])(?!(?:true|false|null|none|nil)(?:[\s,;"''\}\]\)]|$))(?!\\?["'']\\?["''](?:[\s,;\}\]\)]|$))(\\"(?:[^"\\\r\n]|\\\\\\"|\\\\\\\\|\\[^"\\\r\n])+\\"|"(?:[^"\\\r\n]|\\[^\r\n])+"|''[^''\r\n]+''|(?!\\?["''])(?:\[[^\]\r\n]*\][^\s,;"''\}\]\)]*|[^\s,;"''\}\]\)]+))', '$1[segredo ocultado: atribuicao]')
+    ,@('(?i)\b(?!(?:[\w.-]*(?:tokens(?:[_-](?:in|out|input|output|read|write|cached?|used|total|count|limit|max|min|per[_-]\w+|rate|cost|budget))?|token[_-](?:count|limit|max|min|total|used|usage|budget|rate|cost|ttl|expir\w*|len|length|size|window|price))|(?:has|is|use|enable|require|allow|with)[_-](?:password|passwd|secret|token|api[_-]?key|access[_-]?key))(?:\\?["''])?[ \t]*[:=])([\w.-]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key)[\w.-]*(?:\\?["''])?[ \t]*[:=][ \t]*)(?!\\?["'']?\[segredo ocultado: [a-z-]+\](?:\\?["''])?(?:[\s,;\}\]\)]|$))(?!\[\s*\])(?![$({\}\]])(?!(?:true|false|null|none|nil)(?:[\s,;"''\}\]\)]|$))(?!\\?["'']\\?["''](?:[\s,;\}\]\)]|$))(\\"(?:[^"\\\r\n]|\\\\\\"|\\\\\\\\|\\[^"\\\r\n])+\\"|"(?:[^"\\\r\n]|\\[^\r\n])+"|''[^''\r\n]+''|(?!\\?["''])(?:\[[^\]\r\n]*\][^\s,;"''\}\]\)]*|[^\s,;"''\}\]\)]+))', '$1[segredo ocultado: atribuicao]', 'atribuicao')
 )
+
+function Test-IcpAtribuicaoValorSegredo {
+    # Avalia se o valor capturado pela regra 'atribuicao' deve ser mascarado (fail-closed para tokens/chaves reais).
+    param(
+        [string]$Prefix,
+        [string]$RawValue
+    )
+    if ([string]::IsNullOrEmpty($RawValue)) { return $false }
+
+    $isQuoted = $false
+    $inner = $RawValue
+    if ($RawValue.Length -ge 4 -and $RawValue.StartsWith('\"') -and $RawValue.EndsWith('\"')) {
+        $isQuoted = $true
+        $inner = $RawValue.Substring(2, $RawValue.Length - 4)
+    }
+    elseif ($RawValue.Length -ge 2 -and (($RawValue.StartsWith('"') -and $RawValue.EndsWith('"')) -or ($RawValue.StartsWith("'") -and $RawValue.EndsWith("'")))) {
+        $isQuoted = $true
+        $inner = $RawValue.Substring(1, $RawValue.Length - 2)
+    }
+
+    $isPasswordKey = ($Prefix -match '(?i)(?:password|passwd)') -and ($Prefix -notmatch '(?i)(?:api[_-]?key|access[_-]?key|token|secret)')
+
+    if (-not $isQuoted) {
+        if ([string]::IsNullOrWhiteSpace($inner)) { return $false }
+        if ($inner -match '^(?i)(?:true|false|null|none|nil|yes|no|ok|n/a|na|undefined|set|unset|missing|present|absent|enabled|disabled|configured|definido|ausente|sim|n[aã]o|ativo|inativo)$') {
+            return $false
+        }
+        if ($inner -match '^(?:\*{3,}|\.{3,}|-{1,}|<redacted>|<empty>|<none>|\(empty\)|\(none\))$') {
+            return $false
+        }
+        if ($inner -match '^\d+$') {
+            if ($isPasswordKey) { return ($inner.Length -ge 4) }
+            return ($inner.Length -ge 6)
+        }
+        if ((-not $inner.StartsWith('[')) -and ($inner.Length -lt 4)) {
+            return $false
+        }
+    }
+    else {
+        if ($inner.Length -eq 0 -or $inner -match '^\[segredo ocultado: [a-z-]+\]$') {
+            return $false
+        }
+    }
+
+    return $true
+}
 
 function Hide-IcpAtribuicaoSensivel {
     # Oculta o lado direito de AssignmentStatementAst com alvo sensível antes de entrar em <entrada>.
@@ -80,13 +126,20 @@ function Invoke-IcpRegexMaskPass {
         [string]$Pattern,
         [string]$Replacement,
         [TimeSpan]$Timeout,
-        [ref]$Contagem
+        [ref]$Contagem,
+        [string]$RuleKind = ''
     )
     $rx = [regex]::new($Pattern, [System.Text.RegularExpressions.RegexOptions]::None, $Timeout)
     $script:IcpMaskLocalHits = 0
     $script:IcpMaskReplacement = $Replacement
+    $script:IcpMaskRuleKind = $RuleKind
     $eval = [System.Text.RegularExpressions.MatchEvaluator]{
         param($m)
+        if ($script:IcpMaskRuleKind -eq 'atribuicao') {
+            if (-not (Test-IcpAtribuicaoValorSegredo -Prefix $m.Groups[1].Value -RawValue $m.Groups[2].Value)) {
+                return $m.Value
+            }
+        }
         $script:IcpMaskLocalHits++
         return $m.Result($script:IcpMaskReplacement)
     }
@@ -107,8 +160,9 @@ function Hide-IcpSegredo {
     )
     if ([string]::IsNullOrEmpty($Text)) { return $Text }
     foreach ($p in $script:IcpSegredos) {
+        $ruleKind = if ($p.Count -ge 3) { [string]$p[2] } else { '' }
         try {
-            $Text = Invoke-IcpRegexMaskPass -Text $Text -Pattern $p[0] -Replacement $p[1] -Timeout $Timeout -Contagem $Contagem
+            $Text = Invoke-IcpRegexMaskPass -Text $Text -Pattern $p[0] -Replacement $p[1] -Timeout $Timeout -Contagem $Contagem -RuleKind $ruleKind
         }
         catch {
             $isTimeout = ($_.Exception -is [System.Text.RegularExpressions.RegexMatchTimeoutException]) -or
@@ -127,7 +181,7 @@ function Hide-IcpSegredo {
                 $sb = [System.Text.StringBuilder]::new($Text.Length)
                 foreach ($ln in $linhas) {
                     try {
-                        $lnMask = Invoke-IcpRegexMaskPass -Text $ln -Pattern $p[0] -Replacement $p[1] -Timeout $Timeout -Contagem $Contagem
+                        $lnMask = Invoke-IcpRegexMaskPass -Text $ln -Pattern $p[0] -Replacement $p[1] -Timeout $Timeout -Contagem $Contagem -RuleKind $ruleKind
                         [void]$sb.Append($lnMask)
                     }
                     catch {

@@ -41,6 +41,194 @@
     return $tot
 }
 
+function ConvertTo-IcpCommandOutput {
+    # Converte itens capturados, redirecionamentos, marcador opcional e mascaramento nas linhas finais de saída.
+    param(
+        $EngineState,
+        $StmtAst,
+        [object[]]$Itens,
+        $Antigos,
+        [bool]$NativoFalhou,
+        [bool]$CaptureTruncated,
+        [int]$DroppedItems,
+        [int]$CapturedChars,
+        [string]$ExtraLine = '',
+        [string]$MarkerLine = '',
+        [ref]$TiposOut
+    )
+    $tipos = @(foreach ($it in $Itens) { Get-IcpTipo -Item $it -ErrosAntigos $Antigos })
+    if ($null -ne $TiposOut) { $TiposOut.Value = $tipos }
+    $linhas = @(ConvertTo-IcpLinha -Itens $Itens -Tipos $tipos -Largura 4096 -NativoFalhou $NativoFalhou)
+    if ($ExtraLine) { $linhas += $ExtraLine }
+    if ($CaptureTruncated) {
+        $linhas += "[icp: captura limitada em $($EngineState.MaxCaptureChars) chars; $DroppedItems item(ns) excedente(s) descartado(s)]"
+    }
+    if ($EngineState.TailRedir -gt 0 -and $null -ne $StmtAst) {
+        $saldoRedir = [Math]::Max(256, [Math]::Min(65536, $EngineState.MaxCaptureChars - $CapturedChars))
+        $linhas += @(Get-IcpRedirecionamento -Ast $StmtAst -Tail $EngineState.TailRedir -MaxChars $saldoRedir)
+    }
+    if ($MarkerLine) { $linhas += $MarkerLine }
+    if ($EngineState.Mascarar -and $linhas.Count -gt 0) {
+        $ocultosOut = 0
+        $linhas = @((Hide-IcpSegredo -Text ($linhas -join "`n") -Contagem ([ref]$ocultosOut)) -split "`n")
+        $EngineState.Ocultos += $ocultosOut
+    }
+    return [string[]]@($linhas)
+}
+
+function Complete-IcpReportDelivery {
+    # Consolida o modelo v2, entrega em -OutFile/icp-logs/clipboard e exibe o rodapé final.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
+        Justification = 'Emite rodapé e avisos de entrega para o operador na tela.')]
+    param(
+        [Parameter(Mandatory)]$Eng,
+        [int]$MsTotal,
+        $AmbienteInfo,
+        [switch]$InterrompidoCtrlC
+    )
+    if ($null -eq $AmbienteInfo) { $AmbienteInfo = Get-IcpAmbienteInfo }
+
+    $emitLine = {
+        param([string]$Txt, [ConsoleColor]$Color = [ConsoleColor]::Gray, [switch]$NoColorArg)
+        if ($InterrompidoCtrlC) {
+            try { [Console]::WriteLine($Txt) } catch { $null = $_ }
+        }
+        elseif ($NoColorArg) {
+            Write-Host $Txt
+        }
+        else {
+            Write-Host $Txt -ForegroundColor $Color
+        }
+    }
+
+    $falhas = @($Eng.Res | Where-Object Status -eq 'FALHOU' | ForEach-Object N)
+    $naoExec = @($Eng.Res | Where-Object Status -eq 'NAO_EXECUTADO')
+    $executadosCount = @($Eng.Res | Where-Object Status -ne 'NAO_EXECUTADO').Count
+    $resultado = if ($Eng.Bloqueado) { "BLOQUEADO no pré-voo (0 de $($Eng.Total) executados)" }
+    elseif ($InterrompidoCtrlC -or ($falhas.Count -eq 0 -and $Eng.ParadoOperador)) { "INTERROMPIDO pelo operador ($executadosCount de $($Eng.Total) executados)" }
+    elseif ($falhas.Count -eq 0) { 'OK' }
+    elseif ($naoExec.Count -gt 0 -or -not $Eng.Continuar) { "FALHOU no comando $($falhas[0]) de $($Eng.Total)" }
+    else { "COM FALHAS nos comandos $($falhas -join ', ') de $($Eng.Total)" }
+
+    $algumInterativo = $Eng.ModoInterativo -or (@($Eng.Res | Where-Object { $_.Interativo }).Count -gt 0)
+    $flags = Get-IcpFlagList -Explain:$Eng.Explicar -Raw:$Eng.Raw -ContinueOnError:$Eng.Continuar `
+        -Step:$Eng.PassoAPassoInicial -NoMask:(-not $Eng.Mascarar) -AllowTrailingBackslash:$Eng.PermitirBarra `
+        -AllowedExitCodes $Eng.AllowedExitCodes -CommandTimeoutSeconds $Eng.TimeoutSeg `
+        -Interactive:$algumInterativo
+
+    $model = New-IcpReportModel -VersaoIcp $script:AgentToolsVersion -Formato $Eng.Formato -Explain:$Eng.Explicar `
+        -Resultado $resultado -MsTotal $MsTotal -Flags $flags -Bloqueios $Eng.Bloqueios `
+        -AmbienteInfo $AmbienteInfo -Mascarar $Eng.Mascarar -Ocultos $Eng.Ocultos -Registros $Eng.Res.ToArray()
+
+    $maxFileChars = Get-IcpMaxFileChar
+    $serFull = Format-IcpReportText -Model $model -Format $Eng.Formato -MaxFileChars $(if ($Eng.ModoOut) { $maxFileChars } else { 0 })
+    $texto = $serFull.Text
+
+    $arquivo = $null
+    $clip = $texto
+    $outCaminho = $Eng.OutCaminho
+    if ($Eng.ModoOut) {
+        if ($Eng.OutVazio) {
+            & $emitLine 'icp: -OutFile vazio; o relatório não foi gravado nem copiado.' ([ConsoleColor]::Yellow)
+        }
+        elseif ($Eng.OutErro) {
+            & $emitLine "icp: não consegui gravar o relatório em '$($Eng.OutArq)' ($($Eng.OutErro)); nada foi copiado." ([ConsoleColor]::Yellow)
+        }
+        else {
+            try { [System.IO.File]::WriteAllText($outCaminho, $texto, [System.Text.UTF8Encoding]::new($false)) }
+            catch {
+                & $emitLine "icp: não consegui gravar o relatório em '$($Eng.OutArq)' ($($_.Exception.Message)); nada foi copiado." ([ConsoleColor]::Yellow)
+                $outCaminho = $null
+            }
+        }
+    }
+    elseif ($texto.Length -gt $Eng.MaxClip) {
+        try {
+            $dir = Get-IcpLogDirectory
+            $null = New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop
+            Clear-IcpOldLog -Directory $dir -Days 7
+
+            $serArq = Format-IcpReportText -Model $model -Format $Eng.Formato -MaxFileChars $maxFileChars
+            $arquivo = Write-IcpLogFileExclusive -Directory $dir -Content $serArq.Text -Format $Eng.Formato
+            $texto = $serArq.Text
+
+            $model.arquivo = [pscustomobject]@{
+                caminho       = $arquivo
+                formato       = $Eng.Formato
+                chars         = $serArq.CharCount
+                bytes         = $serArq.ByteCount
+                truncado_teto = $serArq.Truncated
+            }
+            $serSum = Format-IcpReportText -Model $model -Format $Eng.Formato -Summary
+            $clip = $serSum.Text
+        }
+        catch {
+            if ($Eng.SemClip) { & $emitLine "icp: não consegui gravar o arquivo ($_); o relatório não foi gravado nem copiado (-NoClipboard)." ([ConsoleColor]::Yellow) }
+            else { & $emitLine "icp: não consegui gravar o arquivo ($_); copiando o relatório inteiro." ([ConsoleColor]::Yellow) }
+            $arquivo = $null
+        }
+    }
+
+    $copiou = $false
+    if (-not $Eng.ModoOut -and -not $Eng.SemClip) {
+        try { Set-Clipboard -Value $clip -ErrorAction Stop; $copiou = $true }
+        catch { & $emitLine "icp: não consegui copiar para a área de transferência: $_" ([ConsoleColor]::Yellow) }
+    }
+
+    $modoRel = if ($Eng.Explicar) { 'completo/-Explain' } else { 'compacto' }
+    if ($Eng.Formato -ne 'xml') { $modoRel += " · $($Eng.Formato)" }
+    $durTotal = Format-IcpDuracao -Ms $MsTotal
+    if ($Eng.Interativo) {
+        $corResT = if ($resultado -eq 'OK') { 'Oliva' } elseif (($InterrompidoCtrlC -or $Eng.ParadoOperador) -and $falhas.Count -eq 0) { 'Ambar' } else { 'Terracota' }
+        $icRes = if ($resultado -eq 'OK') { '✓' } elseif (($InterrompidoCtrlC -or $Eng.ParadoOperador) -and $falhas.Count -eq 0) { '■' } else { '✗' }
+        & $emitLine "$(Format-IcpCor '╰─' 'Petroleo') $(Format-IcpCor "$icRes Resultado: $resultado" $corResT -Negrito) $(Format-IcpCor "($durTotal · $modoRel)" 'Neutro')" -NoColorArg
+        if ($Eng.ModoOut) {
+            if ($outCaminho) { & $emitLine (Format-IcpCor "--- Relatório ($($texto.Length) caracteres) gravado em: $outCaminho" 'Ambar') -NoColorArg }
+        }
+        elseif ($arquivo) {
+            & $emitLine (Format-IcpCor "--- Relatório ($($texto.Length) caracteres) gravado em: $arquivo" 'Ambar') -NoColorArg
+            if ($Eng.SemClip) { & $emitLine (Format-IcpCor '--- Área de transferência: não usada (-NoClipboard).' 'Neutro') -NoColorArg }
+            else { & $emitLine (Format-IcpCor "--- Área de transferência: resumo de $($clip.Length) caracteres com o caminho. Anexe o arquivo." 'Ambar') -NoColorArg }
+        }
+        elseif ($Eng.SemClip) { & $emitLine (Format-IcpCor '--- Área de transferência: não usada (-NoClipboard).' 'Neutro') -NoColorArg }
+        elseif ($copiou) { & $emitLine (Format-IcpCor "--- Relatório copiado para a área de transferência ($($clip.Length) caracteres)." 'Oliva') -NoColorArg }
+        if ($naoExec.Count -gt 0) {
+            & $emitLine (Format-IcpCor "--- Comandos não executados: $($naoExec.Count)" 'Neutro') -NoColorArg
+        }
+        if ($Eng.Ocultos -gt 0) {
+            & $emitLine (Format-IcpCor "--- Segredos ocultados no relatório: $($Eng.Ocultos) (a tela mostra o original)" 'Ambar') -NoColorArg
+        }
+    }
+    else {
+        $corRes = if ($resultado -eq 'OK') { 'Green' } elseif (($InterrompidoCtrlC -or $Eng.ParadoOperador) -and $falhas.Count -eq 0) { 'Yellow' } else { 'Red' }
+        $sep = ('─' * [Math]::Min(60, $Eng.LarguraTela))
+        if ($InterrompidoCtrlC) {
+            try {
+                [Console]::WriteLine($sep)
+                [Console]::WriteLine("--- Resultado: $resultado ($durTotal · $modoRel)")
+            }
+            catch { $null = $_ }
+        }
+        else {
+            Write-Host $sep -ForegroundColor DarkGray
+            Write-Host "--- Resultado: $resultado" -ForegroundColor $corRes -NoNewline
+            Write-Host " ($durTotal · $modoRel)" -ForegroundColor DarkGray
+        }
+        if ($Eng.ModoOut) {
+            if ($outCaminho) { & $emitLine "--- Relatório ($($texto.Length) caracteres) gravado em: $outCaminho" ([ConsoleColor]::Yellow) }
+        }
+        elseif ($arquivo) {
+            & $emitLine "--- Relatório ($($texto.Length) caracteres) gravado em: $arquivo" ([ConsoleColor]::Yellow)
+            if ($Eng.SemClip) { & $emitLine '--- Área de transferência: não usada (-NoClipboard).' ([ConsoleColor]::Yellow) }
+            else { & $emitLine "--- Área de transferência: resumo de $($clip.Length) caracteres com o caminho. Anexe o arquivo." ([ConsoleColor]::Yellow) }
+        }
+        elseif ($Eng.SemClip) { & $emitLine '--- Área de transferência: não usada (-NoClipboard).' -NoColorArg }
+        elseif ($copiou) { & $emitLine "--- Relatório copiado para a área de transferência ($($clip.Length) caracteres)." ([ConsoleColor]::Green) }
+        & $emitLine "--- Comandos não executados: $($naoExec.Count)" -NoColorArg
+        if ($Eng.Ocultos -gt 0) { & $emitLine "--- Segredos ocultados no relatório: $($Eng.Ocultos) (a tela mostra o original)" ([ConsoleColor]::Yellow) }
+    }
+}
+
 function Invoke-IcpEngineDispatch {
     # Máquina de estados privada no escopo do módulo AgentTools gerenciada pelo motor icp.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
@@ -59,9 +247,26 @@ function Invoke-IcpEngineDispatch {
             if ($e.Index -ge $e.Total) { return 'stop' }
             $e.CurStmt = $e.Stmts[$e.Index]
             $e.CurCmdText = $e.CurStmt.Extent.Text
+            $meta = if ($null -ne $e.Metas -and $e.Index -lt $e.Metas.Count) { $e.Metas[$e.Index] } else { $null }
+            $rotuloRaw = if ($null -ne $meta) { $meta.Rotulo } else { $null }
+            $rotuloMasc = $rotuloRaw
+            if ($e.Mascarar -and -not [string]::IsNullOrWhiteSpace($rotuloRaw)) {
+                $ocultosRot = 0
+                $rotuloMasc = Hide-IcpSegredo -Text $rotuloRaw -Contagem ([ref]$ocultosRot)
+                $e.Ocultos += $ocultosRot
+            }
+            $e.CurRotulo = $rotuloRaw
+            $e.CurRotuloTela = if (-not [string]::IsNullOrWhiteSpace($rotuloRaw)) {
+                $rt = ($rotuloRaw -replace '\s+', ' ').Trim()
+                if ($rt.Length -gt 70) { $rt.Substring(0, 69) + '…' } else { $rt }
+            }
+            else { $null }
+
             $e.CurReg = [pscustomobject]@{
                 N             = $e.Index + 1
                 Comando       = $e.CurCmdText
+                Rotulo        = $rotuloMasc
+                Interativo    = $false
                 Status        = 'NAO_EXECUTADO'
                 Exit          = $null
                 ExitPermitido = $false
@@ -70,6 +275,8 @@ function Invoke-IcpEngineDispatch {
                 Atribuicao    = $null
                 Silenciosos   = 0
                 SegundoPlano  = @()
+                Filho         = @()
+                SemSaidaS     = $null
             }
             if ($e.Mascarar) {
                 $ocultosCmd = 0
@@ -81,17 +288,20 @@ function Invoke-IcpEngineDispatch {
             $resumo = ($e.CurCmdText -replace '\s+', ' ').Trim()
             if ($resumo.Length -gt 70) { $resumo = $resumo.Substring(0, 69) + '…' }
             $e.CurResumo = $resumo
+            $labelExib = if ($e.CurRotuloTela) { $e.CurRotuloTela } else { $resumo }
 
             if ($e.Parar) {
                 if ($e.Interativo) {
-                    Write-Host "$(Format-IcpCor '│ ' 'Pedra')$(Format-IcpCor "[$($e.CurReg.N)/$($e.Total)] " 'Neutro')$(Format-IcpCor 'NAO_EXECUTADO' 'Pedra') $(Format-IcpComandoColorido -Texto $resumo)"
+                    $labelFmt = if ($e.CurRotuloTela) { Format-IcpCor $e.CurRotuloTela 'Creme' } else { Format-IcpComandoColorido -Texto $resumo }
+                    Write-Host "$(Format-IcpCor '│ ' 'Pedra')$(Format-IcpCor "[$($e.CurReg.N)/$($e.Total)] " 'Neutro')$(Format-IcpCor 'NAO_EXECUTADO' 'Pedra') $labelFmt"
                 }
                 else {
                     Write-Host "[$($e.CurReg.N)/$($e.Total)] " -NoNewline
                     Write-Host 'NAO_EXECUTADO' -ForegroundColor $e.Cores.NAO_EXECUTADO -NoNewline
-                    Write-Host " $resumo"
+                    Write-Host " $labelExib"
                 }
                 $e.Res.Add($e.CurReg)
+                $e.CurReg = $null
                 $e.Index++
                 $e.CurSkipped = $true
                 return 'skip'
@@ -109,8 +319,42 @@ function Invoke-IcpEngineDispatch {
             $e.CurCaptureTruncated = $false
             $e.CurExtraErrors = 0
             $e.CurHasNewError = $false
+            $e.CurSemSaidaS = $null
+            $e.CurMortos.Clear()
+            $e.CurFilhosAtivos.Clear()
             $global:LASTEXITCODE = 0
 
+            $querInterativo = $e.ModoInterativo -or ([bool]($null -ne $meta -and $meta.Interativo))
+            if ($querInterativo -and -not $e.TemEntradaInterativa) {
+                if (-not $e.ModoInterativo) {
+                    Write-Host 'icp: #* interactive ignorado em modo não interativo (executando em modo capturado).' -ForegroundColor Yellow
+                }
+                $querInterativo = $false
+            }
+
+            if ($querInterativo) {
+                $e.CurInterativoCmd = $true
+                $e.CurReg.Interativo = $true
+                $e.CurDiretoInterativo = Test-IcpInterativoDireto -Ast $e.CurStmt -EhNativo $e.CurNativo
+                $e.CurForcarCor = $false
+                $e.CurEnvAntes = $null
+                $e.CurBaseFilhos = if ($e.TemProcessTree) { Get-AgentToolsProcessBaseline -RootPid $PID } else { $null }
+                $borda = Format-IcpCor '│ ' 'Pedra'
+                $cabInt = "$borda$(Format-IcpCor "[$($e.CurReg.N)/$($e.Total)]" 'Neutro') $(Format-IcpCor '▸ INTERATIVO' 'Ambar' -Negrito) "
+                $cabInt += if ($e.CurRotuloTela) { Format-IcpCor $e.CurRotuloTela 'Creme' -Negrito } else { Format-IcpComandoColorido -Texto $resumo }
+                Write-Host $cabInt
+                if ($e.TimeoutSeg -gt 0) {
+                    Write-Host "$borda  $(Format-IcpCor '[INTERATIVO] timeout suspenso durante interação do operador' 'Neutro')"
+                }
+                $e.CurLastOutputSw = [System.Diagnostics.Stopwatch]::StartNew()
+                $e.CurSw = [System.Diagnostics.Stopwatch]::StartNew()
+                $e.CurConcluiu = $false
+                $e.CurSkipped = $false
+                return 'run-interactive'
+            }
+
+            $e.CurInterativoCmd = $false
+            $e.CurDiretoInterativo = $false
             $e.CurOrigem = if ($e.UsarStatus) { Get-IcpOrigemComando -Ast $e.CurStmt } else { '' }
             $e.CurBaseFilhos = $null
             $e.CurForcarCor = $e.PreservarCorTela -and (Test-IcpPodeForcarCorNativa -Ast $e.CurStmt -EhNativo $e.CurNativo)
@@ -137,11 +381,12 @@ function Invoke-IcpEngineDispatch {
             }
 
             if ($null -ne $e.Status) {
-                $e.Status.BeginCommand($e.CurReg.N, $e.Total, $e.CurOrigem, $resumo, $e.TimeoutSeg)
+                $e.Status.BeginCommand($e.CurReg.N, $e.Total, $e.CurOrigem, $labelExib, $e.TimeoutSeg)
             }
             elseif ($e.TemProcessTree) {
                 $e.CurBaseFilhos = Get-AgentToolsProcessBaseline -RootPid $PID
             }
+            $e.CurLastOutputSw = [System.Diagnostics.Stopwatch]::StartNew()
             $e.CurSw = [System.Diagnostics.Stopwatch]::StartNew()
             $e.CurConcluiu = $false
             $e.CurSkipped = $false
@@ -152,6 +397,7 @@ function Invoke-IcpEngineDispatch {
         }
         'sink' {
             if ($e.CurSkipped) { return }
+            if ($null -ne $e.CurLastOutputSw) { $e.CurLastOutputSw.Restart() }
             $isErr = $Payload -is [System.Management.Automation.ErrorRecord]
             $isNativeErr = $isErr -and ($Payload.FullyQualifiedErrorId -like 'NativeCommandError*')
             $isNewPsErr = $isErr -and (-not $isNativeErr) -and (-not $e.CurAntigos.Contains($Payload))
@@ -179,7 +425,7 @@ function Invoke-IcpEngineDispatch {
             if ($isErr -and $e.CurEmitSet.Count -lt $e.CurEmitSetMax) {
                 [void]$e.CurEmitSet.Add($Payload)
             }
-            if ($null -ne $e.Status) {
+            if ($null -ne $e.Status -and -not $e.CurInterativoCmd) {
                 if ($isErr) {
                     if ($isNativeErr) { $e.Status.NoteStderr() }
                     elseif (-not $e.CurAntigos.Contains($Payload)) { $e.Status.NoteError() }
@@ -194,29 +440,64 @@ function Invoke-IcpEngineDispatch {
         }
         'done' {
             if ($null -ne $e.CurSw) { $e.CurSw.Stop() }
+            if ($null -ne $e.CurLastOutputSw) { $e.CurLastOutputSw.Stop() }
             $e.CurConcluiu = $true
         }
         'catch' {
             $e.CurExc = $Payload
             if ($null -ne $e.CurSw) { $e.CurSw.Stop() }
+            if ($null -ne $e.CurLastOutputSw) { $e.CurLastOutputSw.Stop() }
             $e.CurConcluiu = $true
         }
         'end' {
-            if ($null -ne $e.Status) { $e.Status.EndCommand() }
+            if ($null -ne $e.Status -and -not $e.CurInterativoCmd) { $e.Status.EndCommand() }
             if ($e.CurForcarCor -and $null -ne $e.CurEnvAntes) {
                 foreach ($ek in $e.CurEnvAntes.Keys) {
                     [Environment]::SetEnvironmentVariable($ek, $e.CurEnvAntes[$ek], 'Process')
                 }
             }
             if (-not $e.CurConcluiu) {
+                if ($null -ne $e.CurSw) { $e.CurSw.Stop() }
+                if ($null -ne $e.CurLastOutputSw) { $e.CurLastOutputSw.Stop() }
+                $idleS = if ($null -ne $e.Status -and -not $e.CurInterativoCmd) {
+                    [int][Math]::Floor($e.Status.LastIdleSeconds)
+                }
+                elseif ($null -ne $e.CurLastOutputSw) {
+                    [int][Math]::Floor($e.CurLastOutputSw.Elapsed.TotalSeconds)
+                }
+                else { 0 }
+                $e.CurSemSaidaS = $idleS
+
+                if ($null -ne $e.Status -and -not $e.CurInterativoCmd) {
+                    foreach ($obs in @($e.Status.LastActiveChildren)) {
+                        if (-not [string]::IsNullOrWhiteSpace($obs) -and -not $e.CurFilhosAtivos.Contains($obs)) {
+                            $e.CurFilhosAtivos.Add($obs)
+                        }
+                    }
+                    foreach ($rem in @($e.Status.RemainingChildren)) {
+                        if (-not [string]::IsNullOrWhiteSpace($rem) -and -not $e.CurFilhosAtivos.Contains($rem)) {
+                            $e.CurFilhosAtivos.Add($rem)
+                        }
+                    }
+                }
+                elseif ($e.TemProcessTree -and $null -ne $e.CurBaseFilhos) {
+                    foreach ($rem in @(Get-AgentToolsNewChild -RootPid $PID -Baseline $e.CurBaseFilhos)) {
+                        if (-not [string]::IsNullOrWhiteSpace($rem) -and -not $e.CurFilhosAtivos.Contains($rem)) {
+                            $e.CurFilhosAtivos.Add($rem)
+                        }
+                    }
+                }
+
                 $mortosCmd = @()
-                if ($null -ne $e.Status) {
+                if ($null -ne $e.Status -and -not $e.CurInterativoCmd) {
                     $mortosCmd = @($e.Status.KillActiveChildren())
                 }
                 elseif ($e.TemProcessTree -and $null -ne $e.CurBaseFilhos) {
                     $mortosCmd = @(Stop-AgentToolsNewChild -RootPid $PID -Baseline $e.CurBaseFilhos)
                 }
                 foreach ($m in $mortosCmd) {
+                    if ([string]::IsNullOrWhiteSpace($m)) { continue }
+                    if (-not $e.CurMortos.Contains($m)) { $e.CurMortos.Add($m) }
                     if ($e.MortosVistos.Add($m)) { $e.MortosCtrlC.Add($m) }
                 }
             }
@@ -225,13 +506,29 @@ function Invoke-IcpEngineDispatch {
             if ($e.Parar -and $e.CurReg.Status -eq 'NAO_EXECUTADO') {
                 return
             }
+            if ($e.CurInterativoCmd) {
+                $novosErr = [System.Collections.Generic.List[object]]::new()
+                foreach ($errObj in $global:Error) {
+                    if ($e.CurAntigos.Contains($errObj)) { break }
+                    if ($null -ne $e.CurExc -and ([object]::ReferenceEquals($errObj, $e.CurExc) -or [object]::ReferenceEquals($errObj, $e.CurExc.ErrorRecord))) { continue }
+                    $novosErr.Add($errObj)
+                }
+                for ($ei = $novosErr.Count - 1; $ei -ge 0; $ei--) {
+                    $errItem = $novosErr[$ei]
+                    $isNat = ($errItem -is [System.Management.Automation.ErrorRecord]) -and ($errItem.FullyQualifiedErrorId -like 'NativeCommandError*')
+                    if (-not $isNat) { $e.CurHasNewError = $true }
+                    $e.CurItens.Add($errItem)
+                    if ($e.CurEmitSet.Count -lt $e.CurEmitSetMax) { [void]$e.CurEmitSet.Add($errItem) }
+                }
+            }
+
             $exit = $global:LASTEXITCODE -as [int]
             if ($null -eq $exit) { $exit = 0 }
-            $tipos = @(foreach ($it in $e.CurItens) { Get-IcpTipo -Item $it -ErrosAntigos $e.CurAntigos })
+            $tiposPreview = @(foreach ($it in $e.CurItens) { Get-IcpTipo -Item $it -ErrosAntigos $e.CurAntigos })
             $exitFalhou = -not $e.ExitsPermitidos.Contains($exit)
-            $falhou = ($null -ne $e.CurExc) -or $e.CurHasNewError -or ($tipos -contains 'erro') -or $exitFalhou
+            $falhou = ($null -ne $e.CurExc) -or $e.CurHasNewError -or ($tiposPreview -contains 'erro') -or $exitFalhou
             $msgTimeout = $null
-            if ($null -ne $e.Status -and $e.Status.TimedOut) {
+            if ($null -ne $e.Status -and -not $e.CurInterativoCmd -and $e.Status.TimedOut) {
                 $falhou = $true
                 $msgTimeout = if ($e.Status.KilledSummary) {
                     "[ERRO] [icp] Timeout após $($e.TimeoutSeg)s: processo(s) filho(s) encerrado(s): $($e.Status.KilledSummary)"
@@ -243,32 +540,24 @@ function Invoke-IcpEngineDispatch {
             if ($null -ne $e.CurExc) {
                 if ($e.CurEmitSet.Count -lt $e.CurEmitSetMax) { [void]$e.CurEmitSet.Add($e.CurExc) }
                 $e.CurItens.Add($e.CurExc)
-                $tipos += 'erro'
             }
-            $linhas = @(ConvertTo-IcpLinha -Itens $e.CurItens -Tipos $tipos -Largura 4096 -NativoFalhou $exitFalhou)
-            if ($msgTimeout) { $linhas += $msgTimeout }
-            if ($e.CurCaptureTruncated) {
-                $linhas += "[icp: captura limitada em $($e.MaxCaptureChars) chars; $($e.CurDroppedItems) item(ns) excedente(s) descartado(s)]"
-            }
-            if ($e.TailRedir -gt 0) {
-                $saldoRedir = [Math]::Max(256, [Math]::Min(65536, $e.MaxCaptureChars - $e.CurCapturedChars))
-                $linhas += @(Get-IcpRedirecionamento -Ast $e.CurStmt -Tail $e.TailRedir -MaxChars $saldoRedir)
-            }
-            if ($e.Mascarar -and $linhas.Count -gt 0) {
-                $ocultosOut = 0
-                $linhas = @((Hide-IcpSegredo -Text ($linhas -join "`n") -Contagem ([ref]$ocultosOut)) -split "`n")
-                $e.Ocultos += $ocultosOut
-            }
+            $tipos = @()
+            $marcInterativo = if ($e.CurInterativoCmd) { '[icp: comando executado em modo interativo (saída exibida diretamente no console)]' } else { '' }
+            $linhas = ConvertTo-IcpCommandOutput -EngineState $e -StmtAst $e.CurStmt -Itens $e.CurItens.ToArray() `
+                -Antigos $e.CurAntigos -NativoFalhou $exitFalhou -CaptureTruncated $e.CurCaptureTruncated `
+                -DroppedItems $e.CurDroppedItems -CapturedChars $e.CurCapturedChars `
+                -ExtraLine $msgTimeout -MarkerLine $marcInterativo -TiposOut ([ref]$tipos)
 
             $errosSilenciosos = Get-IcpErroSilenciosoCount -ErrosAntigos $e.CurAntigos -Emitidos $e.CurEmitSet
             $e.CurReg.Silenciosos = $errosSilenciosos
-            $e.CurReg.SegundoPlano = if ($null -ne $e.Status) {
+            $spBruto = if ($null -ne $e.Status -and -not $e.CurInterativoCmd) {
                 @($e.Status.RemainingChildren)
             }
             elseif ($e.TemProcessTree -and $null -ne $e.CurBaseFilhos) {
                 @(Get-AgentToolsNewChild -RootPid $PID -Baseline $e.CurBaseFilhos)
             }
             else { @() }
+            $e.CurReg.SegundoPlano = @($spBruto | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 
             $e.CurReg.Status = if ($falhou) { 'FALHOU' } else { 'OK' }
             $e.CurReg.Ms = [int]$e.CurSw.ElapsedMilliseconds
@@ -278,7 +567,8 @@ function Invoke-IcpEngineDispatch {
                     $e.CurReg.ExitPermitido = $true
                 }
             }
-            if ($e.CurStmt -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            if (-not $e.CurInterativoCmd -and
+                $e.CurStmt -is [System.Management.Automation.Language.AssignmentStatementAst] -and
                 -not $falhou -and $linhas.Count -eq 0) {
                 $e.CurReg.Atribuicao = "[Variável atribuída: $($e.CurStmt.Left.Extent.Text)]"
             }
@@ -292,10 +582,18 @@ function Invoke-IcpEngineDispatch {
 
             $icone = if ($e.CurReg.Status -eq 'OK') { '✓' } else { '✗' }
             $exitTela = if ($null -ne $e.CurReg.Exit -and $e.CurReg.Exit -ne 0) { " exit=$($e.CurReg.Exit)" } else { '' }
-            $tela = if ($e.CurReg.Atribuicao) { @($e.CurReg.Atribuicao) } else {
+            $tela = if ($e.CurInterativoCmd) {
+                @(ConvertTo-IcpLinha -Itens $e.CurItens -Tipos $tipos -Largura ([Math]::Max(40, $e.LarguraTela - 4)) -NativoFalhou $exitFalhou -PreservarAnsi:$e.PreservarCorTela | Where-Object { $_.StartsWith('[ERRO] ') })
+            }
+            elseif ($e.CurReg.Atribuicao) { @($e.CurReg.Atribuicao) }
+            else {
                 @(ConvertTo-IcpLinha -Itens $e.CurItens -Tipos $tipos -Largura ([Math]::Max(40, $e.LarguraTela - 4)) -NativoFalhou $exitFalhou -PreservarAnsi:$e.PreservarCorTela)
             }
             if ($msgTimeout) { $tela += $msgTimeout }
+            $durTela = Format-IcpDuracao -Ms $e.CurReg.Ms
+            $durSuf = if ($e.CurInterativoCmd) { "($durTela · interativo)" } else { "($durTela)" }
+            $labelTela = if ($e.CurRotuloTela) { $e.CurRotuloTela } else { $e.CurResumo }
+
             if ($e.Interativo) {
                 $borda = Format-IcpCor '│ ' 'Pedra'
                 $corSt = if ($e.CurReg.Status -eq 'OK') { 'Oliva' } else { 'Terracota' }
@@ -304,7 +602,8 @@ function Invoke-IcpEngineDispatch {
                     $corExit = if ($e.CurReg.Status -eq 'OK') { 'Pedra' } else { 'Terracota' }
                     $cabCmd += Format-IcpCor $exitTela $corExit
                 }
-                $cabCmd += " $(Format-IcpComandoColorido -Texto $e.CurResumo) $(Format-IcpCor "($(Format-IcpDuracao -Ms $e.CurReg.Ms))" 'Pedra')"
+                $cmdSeg = if ($e.CurRotuloTela) { Format-IcpCor $e.CurRotuloTela 'Creme' } else { Format-IcpComandoColorido -Texto $e.CurResumo }
+                $cabCmd += " $cmdSeg $(Format-IcpCor $durSuf 'Pedra')"
                 Write-Host $cabCmd
                 foreach ($l in ($tela | Select-Object -First 40)) {
                     if ($l.StartsWith('[ERRO] ')) {
@@ -330,8 +629,8 @@ function Invoke-IcpEngineDispatch {
                     $corExitNaoInt = if ($e.CurReg.Status -eq 'OK') { 'DarkGray' } else { 'Red' }
                     Write-Host $exitTela -ForegroundColor $corExitNaoInt -NoNewline
                 }
-                Write-Host " $($e.CurResumo) " -NoNewline
-                Write-Host "($(Format-IcpDuracao -Ms $e.CurReg.Ms))" -ForegroundColor DarkGray
+                Write-Host " $labelTela " -NoNewline
+                Write-Host $durSuf -ForegroundColor DarkGray
                 foreach ($l in ($tela | Select-Object -First 40)) {
                     if ($l.StartsWith('[ERRO] ')) { Write-Host $l -ForegroundColor Red } else { Write-Host $l }
                 }
@@ -344,16 +643,23 @@ function Invoke-IcpEngineDispatch {
                 }
             }
 
-            if ((-not $e.Parar) -and $e.PassoAPasso -and ($e.Index + 1 -lt $e.Total)) {
-                $proxResumo = ($e.Stmts[$e.Index + 1].Extent.Text -replace '\s+', ' ').Trim()
+            $e.Res.Add($e.CurReg)
+            $e.CurReg = $null
+            $e.Index++
+
+            if ((-not $e.Parar) -and $e.PassoAPasso -and ($e.Index -lt $e.Total)) {
+                $proxResumo = ($e.Stmts[$e.Index].Extent.Text -replace '\s+', ' ').Trim()
                 if ($proxResumo.Length -gt 70) { $proxResumo = $proxResumo.Substring(0, 69) + '…' }
-                $decPasso = Read-IcpConfirmacaoPasso -ProximoN ($e.Index + 2) -Total $e.Total -ProximoComando $proxResumo
+                $proxMeta = if ($null -ne $e.Metas -and $e.Index -lt $e.Metas.Count) { $e.Metas[$e.Index] } else { $null }
+                $proxRot = if ($null -ne $proxMeta -and -not [string]::IsNullOrWhiteSpace($proxMeta.Rotulo)) {
+                    $pr = ($proxMeta.Rotulo -replace '\s+', ' ').Trim()
+                    if ($pr.Length -gt 70) { $pr.Substring(0, 69) + '…' } else { $pr }
+                }
+                else { '' }
+                $decPasso = Read-IcpConfirmacaoPasso -ProximoN ($e.Index + 1) -Total $e.Total -ProximoComando $proxResumo -ProximoRotulo $proxRot
                 if ($decPasso -eq 'todos') { $e.PassoAPasso = $false }
                 elseif ($decPasso -eq 'parar') { $e.Parar = $true; $e.ParadoOperador = $true }
             }
-
-            $e.Res.Add($e.CurReg)
-            $e.Index++
         }
     }
 }
@@ -364,7 +670,8 @@ function Invoke-IcpEngine {
         Justification = 'A tela é para o operador; o relatório vai para a área de transferência ou arquivo.')]
     param(
         [scriptblock]$ScriptBlock,
-        [ValidateSet('xml', 'json', 'markdown')][string]$Format = 'xml',
+        [ValidateSet('xml', 'json', 'markdown', 'yaml', 'toml')][string]$Format = 'xml',
+        [bool]$FormatExplicit = $false,
         [int]$MaxLinesPerCommand = 150,
         [int]$MaxLineLength = 1500,
         [switch]$Raw,
@@ -378,6 +685,7 @@ function Invoke-IcpEngine {
         [switch]$AllowTrailingBackslash,
         [switch]$Explain,
         [switch]$Step,
+        [switch]$Interactive,
         [switch]$NoStatus,
         [int]$CommandTimeoutSeconds = 0,
         [switch]$KeepBlock,
@@ -402,9 +710,20 @@ function Invoke-IcpEngine {
     }
 
     $__paramSet = $ParameterSetName
-    $__formato = $Format.ToLowerInvariant()
+    $__formatosValidos = @('xml', 'json', 'markdown', 'yaml', 'toml')
+    if ($FormatExplicit) {
+        $__formato = $Format.ToLowerInvariant()
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($env:AGENTTOOLS_ICP_FORMAT) -and
+        ($env:AGENTTOOLS_ICP_FORMAT.Trim().ToLowerInvariant() -in $__formatosValidos)) {
+        $__formato = $env:AGENTTOOLS_ICP_FORMAT.Trim().ToLowerInvariant()
+    }
+    else {
+        $__formato = $Format.ToLowerInvariant()
+    }
     $__explicar = [bool]$Explain
     $__passoAPasso = [bool]$Step
+    $__modoInterativo = [bool]$Interactive
     $__jaRecolheu = $false
     $__raw = [bool]$Raw
     $__continuar = [bool]$ContinueOnError
@@ -452,6 +771,7 @@ function Invoke-IcpEngine {
                 $ScriptBlock = $__comp.ScriptBlock
                 $__explicar = [bool]$__comp.Explain
                 $__passoAPasso = [bool]$__comp.Step
+                $__modoInterativo = [bool]$__comp.Interactive
                 $__jaRecolheu = $true
             }
             finally {
@@ -460,15 +780,24 @@ function Invoke-IcpEngine {
         }
 
         $__interativo = Test-IcpInterativo
+        $__temEntradaInterativa = Test-IcpInterativo -RequireInput
         $__cursorAntes = if ($__interativo) { try { [Console]::CursorVisible } catch { $null } } else { $null }
         $__usarStatus = (-not $__semStatus) -and $__interativo
         $__preservarCorTela = $__interativo -and [string]::IsNullOrEmpty($env:NO_COLOR)
-        if ($__passoAPasso -and -not (Test-IcpInterativo -RequireInput)) {
+        if ($__passoAPasso -and -not $__temEntradaInterativa) {
             Write-Host 'icp: -Step ignorado em modo não interativo (executando sem pausas).' -ForegroundColor Yellow
             $__passoAPasso = $false
         }
+        if ($__modoInterativo -and -not $__temEntradaInterativa) {
+            Write-Host 'icp: -Interactive ignorado em modo não interativo (executando em modo capturado).' -ForegroundColor Yellow
+            $__modoInterativo = $false
+        }
 
         $__stmts = if ($null -ne $ScriptBlock.Ast.EndBlock) { @($ScriptBlock.Ast.EndBlock.Statements) } else { @() }
+        $__comLabelsEnv = $env:AGENTTOOLS_ICP_COMMENT_LABELS
+        $__usarComPlain = (-not [string]::IsNullOrWhiteSpace($__comLabelsEnv)) -and ($__comLabelsEnv.Trim() -notmatch '^(?i)(?:0|false)$')
+        $__metas = @(Get-IcpStatementMeta -Ast $ScriptBlock.Ast -AllowPlainComments:$__usarComPlain)
+
         $__larguraTela = try { $Host.UI.RawUI.WindowSize.Width - 1 } catch { 0 }
         if ($__larguraTela -lt 40) { $__larguraTela = 120 }
 
@@ -493,59 +822,83 @@ function Invoke-IcpEngine {
         $__sufInt = if ($__interativo -and $null -ne $__temaInt) { $__temaInt.Reset } else { '' }
 
         $__eng = @{
-            Stmts               = $__stmts
-            Total               = $__stmts.Count
-            Index               = 0
-            Res                 = [System.Collections.Generic.List[object]]::new()
-            Parar               = $false
-            ParadoOperador      = $false
-            Bloqueado           = $false
-            Bloqueios           = @()
-            Ocultos             = 0
-            Raw                 = $__raw
-            Continuar           = $__continuar
-            ExitsPermitidos     = $__exitsPermitidos
-            MaxLinhas           = $__maxLinhas
-            MaxLargura          = $__maxLargura
-            Mascarar            = $__mascarar
-            TailRedir           = $__tailRedir
-            PassoAPasso         = $__passoAPasso
-            TimeoutSeg          = $__timeoutSeg
-            Interativo          = $__interativo
-            UsarStatus          = $__usarStatus
-            PreservarCorTela    = $__preservarCorTela
-            LarguraTela         = $__larguraTela
-            Cores               = @{ OK = 'Green'; FALHOU = 'Red'; NAO_EXECUTADO = 'DarkGray' }
-            TemStatusBar        = $false
-            TemProcessTree      = $false
-            BaseFilhosLote      = $null
-            Status              = $null
-            MortosCtrlC         = [System.Collections.Generic.List[string]]::new()
-            MortosVistos        = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-            ConcluiuLaco        = $false
-            MaxCaptureChars     = Get-IcpMaxCaptureChar
-            CurStmt             = $null
-            CurCmdText          = ''
-            CurResumo           = ''
-            CurReg              = $null
-            CurNativo           = $false
-            CurAntigos          = $null
-            CurEmitSet          = $null
-            CurEmitSetMax       = 512
-            CurItens            = $null
-            CurExc              = $null
-            CurSw               = $null
-            CurConcluiu         = $false
-            CurSkipped          = $false
-            CurOrigem           = ''
-            CurBaseFilhos       = $null
-            CurForcarCor        = $false
-            CurEnvAntes         = $null
-            CurCapturedChars    = 0
-            CurDroppedItems     = 0
-            CurCaptureTruncated = $false
-            CurExtraErrors      = 0
-            CurHasNewError      = $false
+            Stmts                = $__stmts
+            Metas                = $__metas
+            Total                = $__stmts.Count
+            Index                = 0
+            Res                  = [System.Collections.Generic.List[object]]::new()
+            Parar                = $false
+            ParadoOperador       = $false
+            InterrompidoCtrlC    = $false
+            Bloqueado            = $false
+            Bloqueios            = @()
+            Ocultos              = 0
+            Formato              = $__formato
+            Explicar             = $__explicar
+            Raw                  = $__raw
+            Continuar            = $__continuar
+            AllowedExitCodes     = $AllowedExitCodes
+            ExitsPermitidos      = $__exitsPermitidos
+            MaxLinhas            = $__maxLinhas
+            MaxLargura           = $__maxLargura
+            MaxClip              = $__maxClip
+            Mascarar             = $__mascarar
+            TailRedir            = $__tailRedir
+            PermitirBarra        = $__permitirBarra
+            PassoAPasso          = $__passoAPasso
+            PassoAPassoInicial   = $__passoAPasso
+            ModoInterativo       = $__modoInterativo
+            TemEntradaInterativa = $__temEntradaInterativa
+            TimeoutSeg           = $__timeoutSeg
+            ModoOut              = $__modoOut
+            OutVazio             = $__outVazio
+            OutErro              = $__outErro
+            OutCaminho           = $__outCaminho
+            OutArq               = $__outArq
+            SemClip              = $__semClip
+            Interativo           = $__interativo
+            UsarStatus           = $__usarStatus
+            PreservarCorTela     = $__preservarCorTela
+            LarguraTela          = $__larguraTela
+            Cores                = @{ OK = 'Green'; FALHOU = 'Red'; NAO_EXECUTADO = 'DarkGray' }
+            TemStatusBar         = $false
+            TemProcessTree       = $false
+            BaseFilhosLote       = $null
+            Status               = $null
+            MortosCtrlC          = [System.Collections.Generic.List[string]]::new()
+            MortosVistos         = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            ConcluiuLaco         = $false
+            MaxCaptureChars      = Get-IcpMaxCaptureChar
+            CurStmt              = $null
+            CurCmdText           = ''
+            CurResumo            = ''
+            CurRotulo            = $null
+            CurRotuloTela        = $null
+            CurInterativoCmd     = $false
+            CurDiretoInterativo  = $false
+            CurReg               = $null
+            CurNativo            = $false
+            CurAntigos           = $null
+            CurEmitSet           = $null
+            CurEmitSetMax        = 512
+            CurItens             = $null
+            CurExc               = $null
+            CurSw                = $null
+            CurLastOutputSw      = $null
+            CurSemSaidaS         = $null
+            CurMortos            = [System.Collections.Generic.List[string]]::new()
+            CurFilhosAtivos      = [System.Collections.Generic.List[string]]::new()
+            CurConcluiu          = $false
+            CurSkipped           = $false
+            CurOrigem            = ''
+            CurBaseFilhos        = $null
+            CurForcarCor         = $false
+            CurEnvAntes          = $null
+            CurCapturedChars     = 0
+            CurDroppedItems      = 0
+            CurCaptureTruncated  = $false
+            CurExtraErrors       = 0
+            CurHasNewError       = $false
         }
 
         if ($null -eq $script:IcpEngineStack) {
@@ -553,6 +906,7 @@ function Invoke-IcpEngine {
         }
         $script:IcpEngineStack.Push($__eng)
         $__ambInfo = $null
+        $__relatorioEmitido = $false
         try {
             try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { $null = $_ }
             $__ambInfo = Get-IcpAmbienteInfo
@@ -564,6 +918,7 @@ function Invoke-IcpEngine {
                 $__modoCab = if ($__explicar) { 'completo/-Explain' } else { 'compacto' }
                 if ($__continuar) { $__modoCab += ' · -ContinueOnError' }
                 if ($__passoAPasso) { $__modoCab += ' · -Step' }
+                if ($__modoInterativo) { $__modoCab += ' · -Interactive' }
                 if ($__formato -ne 'xml') { $__modoCab += " · $__formato" }
                 if ($__eng.Bloqueado) { $__modoCab += ' · pré-voo' }
                 Write-Host "$(Format-IcpCor '╭─' 'Petroleo') $(Format-IcpCor 'icp' 'Ambar' -Negrito) $(Format-IcpCor "· $($__eng.Total) comando(s) · $__modoCab" 'Neutro')"
@@ -601,8 +956,18 @@ function Invoke-IcpEngine {
                     if ($__step -eq 'skip') { continue }
                     try {
                         $__userSb = [scriptblock]::Create((Invoke-IcpEngineDispatch -Action 'cmd'))
-                        & $__execInUserMod $__userMod $__userSb *>&1 | ForEach-Object {
-                            Invoke-IcpEngineDispatch -Action 'sink' -Payload $_
+                        if ($__step -eq 'run-interactive') {
+                            if ($__eng.CurDiretoInterativo) {
+                                & $__execInUserMod $__userMod $__userSb
+                            }
+                            else {
+                                & $__execInUserMod $__userMod $__userSb | Out-Host
+                            }
+                        }
+                        else {
+                            & $__execInUserMod $__userMod $__userSb *>&1 | ForEach-Object {
+                                Invoke-IcpEngineDispatch -Action 'sink' -Payload $_
+                            }
                         }
                         Invoke-IcpEngineDispatch -Action 'done'
                     }
@@ -625,18 +990,120 @@ function Invoke-IcpEngine {
                 try { $__eng.Status.Dispose() } catch { $null = $_ }
             }
             if (-not $__eng.ConcluiuLaco) {
+                if ($null -ne $__eng.CurSw) { try { $__eng.CurSw.Stop() } catch { $null = $_ } }
+                if ($null -ne $__eng.CurLastOutputSw) { try { $__eng.CurLastOutputSw.Stop() } catch { $null = $_ } }
                 if ($__eng.TemProcessTree -and $null -ne $__eng.BaseFilhosLote) {
                     try {
                         foreach ($__m in @(Stop-AgentToolsNewChild -RootPid $PID -Baseline $__eng.BaseFilhosLote)) {
+                            if ([string]::IsNullOrWhiteSpace($__m)) { continue }
+                            if (-not $__eng.CurMortos.Contains($__m)) { $__eng.CurMortos.Add($__m) }
                             if ($__eng.MortosVistos.Add($__m)) { $__eng.MortosCtrlC.Add($__m) }
                         }
                     }
                     catch { $null = $_ }
                 }
-                if ($__eng.MortosCtrlC.Count -gt 0) {
-                    $__msgInt = "[INTERROMPIDO] Processo(s) filho(s) encerrado(s): $($__eng.MortosCtrlC -join ', ')"
-                    try { [Console]::WriteLine("$__prefInt$__msgInt$__sufInt") } catch { $null = $_ }
+
+                if ($null -ne $__eng.CurReg -and ($__eng.CurReg.N -eq ($__eng.Index + 1)) -and ($__eng.Res.Count -eq $__eng.Index) -and (-not $__eng.CurSkipped)) {
+                    $__filhosRel = [System.Collections.Generic.List[string]]::new()
+                    $__vistosRel = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                    $__fonteFilhos = if ($__eng.CurMortos.Count -gt 0) { $__eng.CurMortos } else { $__eng.CurFilhosAtivos }
+                    foreach ($__fn in $__fonteFilhos) {
+                        if (-not [string]::IsNullOrWhiteSpace($__fn) -and $__vistosRel.Add($__fn)) {
+                            $__filhosRel.Add($__fn)
+                        }
+                    }
+                    $__marcInt = if ($__filhosRel.Count -gt 0) {
+                        "[icp: comando interrompido pelo operador (Ctrl+C); processo(s): $($__filhosRel -join ', ')]"
+                    }
+                    else {
+                        '[icp: comando interrompido pelo operador (Ctrl+C)]'
+                    }
+                    $__linhasInt = ConvertTo-IcpCommandOutput -EngineState $__eng -StmtAst $__eng.CurStmt `
+                        -Itens $__eng.CurItens.ToArray() -Antigos $__eng.CurAntigos -NativoFalhou $true `
+                        -CaptureTruncated $__eng.CurCaptureTruncated -DroppedItems $__eng.CurDroppedItems `
+                        -CapturedChars $__eng.CurCapturedChars -MarkerLine $__marcInt
+                    if (-not $__eng.Raw) {
+                        $__linhasInt = [string[]]@(Limit-IcpSaida -Linhas $__linhasInt -MaxLinhas $__eng.MaxLinhas -MaxLargura $__eng.MaxLargura)
+                    }
+                    $__semSaidaFinal = if ($null -ne $__eng.CurSemSaidaS) {
+                        [int]$__eng.CurSemSaidaS
+                    }
+                    elseif ($null -ne $__eng.CurLastOutputSw) {
+                        [int][Math]::Floor($__eng.CurLastOutputSw.Elapsed.TotalSeconds)
+                    }
+                    else { 0 }
+                    $__spInt = if ($__eng.TemProcessTree -and $null -ne $__eng.CurBaseFilhos) {
+                        @(Get-AgentToolsNewChild -RootPid $PID -Baseline $__eng.CurBaseFilhos | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                    }
+                    else { @() }
+
+                    $__eng.CurReg.Status = 'INTERROMPIDO'
+                    $__eng.CurReg.Ms = if ($null -ne $__eng.CurSw) { [int]$__eng.CurSw.ElapsedMilliseconds } else { 0 }
+                    $__eng.CurReg.Linhas = $__linhasInt
+                    $__eng.CurReg.Filho = [string[]]$__filhosRel.ToArray()
+                    $__eng.CurReg.SemSaidaS = $__semSaidaFinal
+                    $__eng.CurReg.Silenciosos = Get-IcpErroSilenciosoCount -ErrosAntigos $__eng.CurAntigos -Emitidos $__eng.CurEmitSet
+                    $__eng.CurReg.SegundoPlano = $__spInt
+                    $__eng.Res.Add($__eng.CurReg)
+                    $__eng.CurReg = $null
+                    $__eng.Index++
                 }
+
+                while ($__eng.Index -lt $__eng.Total) {
+                    $__remStmt = $__eng.Stmts[$__eng.Index]
+                    $__remCmd = $__remStmt.Extent.Text
+                    $__remMeta = if ($null -ne $__eng.Metas -and $__eng.Index -lt $__eng.Metas.Count) { $__eng.Metas[$__eng.Index] } else { $null }
+                    $__remRot = if ($null -ne $__remMeta) { $__remMeta.Rotulo } else { $null }
+                    if ($__eng.Mascarar) {
+                        $__ocRem = 0
+                        $__remAstMasc = Hide-IcpAtribuicaoSensivel -Ast $__remStmt -Text $__remCmd -Contagem ([ref]$__ocRem)
+                        $__remCmd = Hide-IcpSegredo -Text $__remAstMasc -Contagem ([ref]$__ocRem)
+                        if (-not [string]::IsNullOrWhiteSpace($__remRot)) {
+                            $__remRot = Hide-IcpSegredo -Text $__remRot -Contagem ([ref]$__ocRem)
+                        }
+                        $__eng.Ocultos += $__ocRem
+                    }
+                    $__eng.Res.Add([pscustomobject]@{
+                        N             = $__eng.Index + 1
+                        Comando       = $__remCmd
+                        Rotulo        = $__remRot
+                        Interativo    = $false
+                        Status        = 'NAO_EXECUTADO'
+                        Exit          = $null
+                        ExitPermitido = $false
+                        Ms            = 0
+                        Linhas        = @()
+                        Atribuicao    = $null
+                        Silenciosos   = 0
+                        SegundoPlano  = @()
+                        Filho         = @()
+                        SemSaidaS     = $null
+                    })
+                    $__eng.Index++
+                }
+
+                $__eng.InterrompidoCtrlC = $true
+                $__eng.ParadoOperador = $true
+
+                $__mortosLimpos = @($__eng.MortosCtrlC | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                $__ativosLimpos = @($__eng.CurFilhosAtivos | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                if ($__mortosLimpos.Count -gt 0) {
+                    $__msgInt = "[INTERROMPIDO] Processo(s) filho(s) encerrado(s): $($__mortosLimpos -join ', ')"
+                }
+                elseif ($__ativosLimpos.Count -gt 0) {
+                    $__msgInt = "[INTERROMPIDO] Execução interrompida pelo operador (processo(s) filho(s): $($__ativosLimpos -join ', '))"
+                }
+                else {
+                    $__msgInt = '[INTERROMPIDO] Execução interrompida pelo operador.'
+                }
+                try { [Console]::WriteLine("$__prefInt$__msgInt$__sufInt") } catch { $null = $_ }
+
+                $__swTotal.Stop()
+                try {
+                    Complete-IcpReportDelivery -Eng $__eng -MsTotal ([int]$__swTotal.ElapsedMilliseconds) -AmbienteInfo $__ambInfo -InterrompidoCtrlC
+                    $__relatorioEmitido = $true
+                }
+                catch { $null = $_ }
             }
             Restore-AgentToolsConsoleState -OutputEncoding $__encAntes -InputEncoding $__encInAntes -RestoreCursor:$($__interativo -and -not $__eng.ConcluiuLaco) -CursorVisibleBefore $__cursorAntes
             if ($script:IcpEngineStack.Count -gt 0) {
@@ -644,120 +1111,8 @@ function Invoke-IcpEngine {
             }
         }
         $__swTotal.Stop()
-        $__msTotal = [int]$__swTotal.ElapsedMilliseconds
-        if ($null -eq $__ambInfo) { $__ambInfo = Get-IcpAmbienteInfo }
-
-        $__falhas = @($__eng.Res | Where-Object Status -eq 'FALHOU' | ForEach-Object N)
-        $__naoExec = @($__eng.Res | Where-Object Status -eq 'NAO_EXECUTADO')
-        $__resultado = if ($__eng.Bloqueado) { "BLOQUEADO no pré-voo (0 de $($__eng.Total) executados)" }
-        elseif ($__falhas.Count -eq 0 -and $__eng.ParadoOperador) { "INTERROMPIDO pelo operador ($(@($__eng.Res | Where-Object Status -ne 'NAO_EXECUTADO').Count) de $($__eng.Total) executados)" }
-        elseif ($__falhas.Count -eq 0) { 'OK' }
-        elseif ($__naoExec.Count -gt 0 -or -not $__continuar) { "FALHOU no comando $($__falhas[0]) de $($__eng.Total)" }
-        else { "COM FALHAS nos comandos $($__falhas -join ', ') de $($__eng.Total)" }
-
-        $__flags = Get-IcpFlagList -Explain:$__explicar -Raw:$__raw -ContinueOnError:$__continuar `
-            -Step:$__eng.PassoAPasso -NoMask:$NoMask -AllowTrailingBackslash:$__permitirBarra `
-            -AllowedExitCodes $AllowedExitCodes -CommandTimeoutSeconds $__timeoutSeg
-
-        $__model = New-IcpReportModel -VersaoIcp $script:AgentToolsVersion -Formato $__formato -Explain:$__explicar `
-            -Resultado $__resultado -MsTotal $__msTotal -Flags $__flags -Bloqueios $__eng.Bloqueios `
-            -AmbienteInfo $__ambInfo -Mascarar $__mascarar -Ocultos $__eng.Ocultos -Registros $__eng.Res.ToArray()
-
-        $__maxFileChars = Get-IcpMaxFileChar
-        $__serFull = Format-IcpReportText -Model $__model -Format $__formato -MaxFileChars $(if ($__modoOut) { $__maxFileChars } else { 0 })
-        $__texto = $__serFull.Text
-
-        $__arquivo = $null
-        $__clip = $__texto
-        if ($__modoOut) {
-            if ($__outVazio) {
-                Write-Host 'icp: -OutFile vazio; o relatório não foi gravado nem copiado.' -ForegroundColor Yellow
-            }
-            elseif ($__outErro) {
-                Write-Host "icp: não consegui gravar o relatório em '$__outArq' ($__outErro); nada foi copiado." -ForegroundColor Yellow
-            }
-            else {
-                try { [System.IO.File]::WriteAllText($__outCaminho, $__texto, [System.Text.UTF8Encoding]::new($false)) }
-                catch {
-                    Write-Host "icp: não consegui gravar o relatório em '$__outArq' ($($_.Exception.Message)); nada foi copiado." -ForegroundColor Yellow
-                    $__outCaminho = $null
-                }
-            }
-        }
-        elseif ($__texto.Length -gt $__maxClip) {
-            try {
-                $__dir = Get-IcpLogDirectory
-                $null = New-Item -ItemType Directory -Path $__dir -Force -ErrorAction Stop
-                Clear-IcpOldLog -Directory $__dir -Days 7
-
-                $__serArq = Format-IcpReportText -Model $__model -Format $__formato -MaxFileChars $__maxFileChars
-                $__arquivo = Write-IcpLogFileExclusive -Directory $__dir -Content $__serArq.Text -Format $__formato
-                $__texto = $__serArq.Text
-
-                $__model.arquivo = [pscustomobject]@{
-                    caminho       = $__arquivo
-                    formato       = $__formato
-                    chars         = $__serArq.CharCount
-                    bytes         = $__serArq.ByteCount
-                    truncado_teto = $__serArq.Truncated
-                }
-                $__serSum = Format-IcpReportText -Model $__model -Format $__formato -Summary
-                $__clip = $__serSum.Text
-            }
-            catch {
-                if ($__semClip) { Write-Host "icp: não consegui gravar o arquivo ($_); o relatório não foi gravado nem copiado (-NoClipboard)." -ForegroundColor Yellow }
-                else { Write-Host "icp: não consegui gravar o arquivo ($_); copiando o relatório inteiro." -ForegroundColor Yellow }
-                $__arquivo = $null
-            }
-        }
-
-        $__copiou = $false
-        if (-not $__modoOut -and -not $__semClip) {
-            try { Set-Clipboard -Value $__clip -ErrorAction Stop; $__copiou = $true }
-            catch { Write-Host "icp: não consegui copiar para a área de transferência: $_" -ForegroundColor Yellow }
-        }
-
-        $__modoRel = if ($__explicar) { 'completo/-Explain' } else { 'compacto' }
-        if ($__formato -ne 'xml') { $__modoRel += " · $__formato" }
-        $__durTotal = Format-IcpDuracao -Ms $__msTotal
-        if ($__interativo) {
-            $__corResT = if ($__resultado -eq 'OK') { 'Oliva' } elseif ($__eng.ParadoOperador -and $__falhas.Count -eq 0) { 'Ambar' } else { 'Terracota' }
-            $__icRes = if ($__resultado -eq 'OK') { '✓' } elseif ($__eng.ParadoOperador -and $__falhas.Count -eq 0) { '■' } else { '✗' }
-            Write-Host "$(Format-IcpCor '╰─' 'Petroleo') $(Format-IcpCor "$__icRes Resultado: $__resultado" $__corResT -Negrito) $(Format-IcpCor "($__durTotal · $__modoRel)" 'Neutro')"
-            if ($__modoOut) {
-                if ($__outCaminho) { Write-Host (Format-IcpCor "--- Relatório ($($__texto.Length) caracteres) gravado em: $__outCaminho" 'Ambar') }
-            }
-            elseif ($__arquivo) {
-                Write-Host (Format-IcpCor "--- Relatório ($($__texto.Length) caracteres) gravado em: $__arquivo" 'Ambar')
-                if ($__semClip) { Write-Host (Format-IcpCor '--- Área de transferência: não usada (-NoClipboard).' 'Neutro') }
-                else { Write-Host (Format-IcpCor "--- Área de transferência: resumo de $($__clip.Length) caracteres com o caminho. Anexe o arquivo." 'Ambar') }
-            }
-            elseif ($__semClip) { Write-Host (Format-IcpCor '--- Área de transferência: não usada (-NoClipboard).' 'Neutro') }
-            elseif ($__copiou) { Write-Host (Format-IcpCor "--- Relatório copiado para a área de transferência ($($__clip.Length) caracteres)." 'Oliva') }
-            if ($__naoExec.Count -gt 0) {
-                Write-Host (Format-IcpCor "--- Comandos não executados: $($__naoExec.Count)" 'Neutro')
-            }
-            if ($__eng.Ocultos -gt 0) {
-                Write-Host (Format-IcpCor "--- Segredos ocultados no relatório: $($__eng.Ocultos) (a tela mostra o original)" 'Ambar')
-            }
-        }
-        else {
-            $__corRes = if ($__resultado -eq 'OK') { 'Green' } elseif ($__eng.ParadoOperador -and $__falhas.Count -eq 0) { 'Yellow' } else { 'Red' }
-            Write-Host ('─' * [Math]::Min(60, $__larguraTela)) -ForegroundColor DarkGray
-            Write-Host "--- Resultado: $__resultado" -ForegroundColor $__corRes -NoNewline
-            Write-Host " ($__durTotal · $__modoRel)" -ForegroundColor DarkGray
-            if ($__modoOut) {
-                if ($__outCaminho) { Write-Host "--- Relatório ($($__texto.Length) caracteres) gravado em: $__outCaminho" -ForegroundColor Yellow }
-            }
-            elseif ($__arquivo) {
-                Write-Host "--- Relatório ($($__texto.Length) caracteres) gravado em: $__arquivo" -ForegroundColor Yellow
-                if ($__semClip) { Write-Host '--- Área de transferência: não usada (-NoClipboard).' -ForegroundColor Yellow }
-                else { Write-Host "--- Área de transferência: resumo de $($__clip.Length) caracteres com o caminho. Anexe o arquivo." -ForegroundColor Yellow }
-            }
-            elseif ($__semClip) { Write-Host '--- Área de transferência: não usada (-NoClipboard).' }
-            elseif ($__copiou) { Write-Host "--- Relatório copiado para a área de transferência ($($__clip.Length) caracteres)." -ForegroundColor Green }
-            Write-Host "--- Comandos não executados: $($__naoExec.Count)"
-            if ($__eng.Ocultos -gt 0) { Write-Host "--- Segredos ocultados no relatório: $($__eng.Ocultos) (a tela mostra o original)" -ForegroundColor Yellow }
+        if (-not $__relatorioEmitido) {
+            Complete-IcpReportDelivery -Eng $__eng -MsTotal ([int]$__swTotal.ElapsedMilliseconds) -AmbienteInfo $__ambInfo
         }
     }
     finally {

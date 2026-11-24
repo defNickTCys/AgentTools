@@ -35,7 +35,7 @@ Describe 'icp' {
     Context '1. Compatibilidade' {
         It 'icp { Get-Date } funciona e resulta OK' {
             $r = Invoke-IcpTeste { Get-Date }
-            (Get-Linhas $r)[0] | Should -Match '^<icp_relatorio versao="2" versao_icp="1\.0\.0" resultado="OK" ms_total="\d+">$'
+            (Get-Linhas $r)[0] | Should -Match '^<icp_relatorio versao="2" versao_icp="1\.1\.0" resultado="OK" ms_total="\d+">$'
             $r | Should -Match 'status="OK"'
             $r | Should -Match (Get-Date).Year
         }
@@ -218,7 +218,7 @@ Describe 'icp' {
             $b = [IO.File]::ReadAllBytes($arq)
             ($b[0] -eq 0xEF -and $b[1] -eq 0xBB) | Should -BeFalse
             $t = [IO.File]::ReadAllText($arq)
-            $t | Should -Match '^<icp_relatorio versao="2" versao_icp="1\.0\.0" resultado="OK" ms_total="\d+">'
+            $t | Should -Match '^<icp_relatorio versao="2" versao_icp="1\.1\.0" resultado="OK" ms_total="\d+">'
             $t | Should -Match 'linha 1\r?\n'
         }
     }
@@ -627,8 +627,8 @@ Describe 'icp' {
             finally { [Environment]::SetEnvironmentVariable('PWD', $antes) }
         }
 
-        It 'o módulo AgentTools está na versão 1.0.0' {
-            (Get-Module AgentTools).Version.ToString() | Should -Be '1.0.0'
+        It 'o módulo AgentTools está na versão 1.1.0' {
+            (Get-Module AgentTools).Version.ToString() | Should -Be '1.1.0'
         }
     }
 
@@ -950,7 +950,7 @@ git add -f \
             try {
                 $r = Invoke-IcpTeste ([scriptblock]::Create($blocoTxt))
                 $global:IcpPreVooRodou | Should -Be 0
-                $r | Should -Match '<icp_relatorio versao="2" versao_icp="1\.0\.0" resultado="BLOQUEADO no pré-voo \(0 de 4 executados\)" ms_total="\d+">'
+                $r | Should -Match '<icp_relatorio versao="2" versao_icp="1\.1\.0" resultado="BLOQUEADO no pré-voo \(0 de 4 executados\)" ms_total="\d+">'
                 $r | Should -Match '<comandos total="4" executados="0">'
                 foreach ($n in 1..4) {
                     $r | Should -Match "<comando n=""$n"" status=""NAO_EXECUTADO"">"
@@ -1439,7 +1439,7 @@ git add -f \
             try {
                 icp -Help
                 $txt = $global:IcpAj8 -join "`n"
-                $txt | Should -Match 'AgentTools · icp v1\.0\.0'
+                $txt | Should -Match 'AgentTools · icp v1\.1\.0'
                 $txt | Should -Match 'SINAIS E DIAGNÓSTICO'
                 $txt | Should -Match 'silenciosos='
                 $txt | Should -Match 'NO_COLOR'
@@ -1447,7 +1447,7 @@ git add -f \
             finally { Remove-Variable IcpAj8 -Scope Global -ErrorAction Ignore }
 
             $h = Get-Help icp
-            $h.Synopsis | Should -Match '1\.0\.0'
+            $h.Synopsis | Should -Match '1\.1\.0'
             ($h.description | Out-String) | Should -Match 'SINAIS E DIAGNÓSTICO'
         }
     }
@@ -1768,7 +1768,7 @@ git add -f \
                 $env:NO_COLOR = $null
                 icp -Help
                 $txt = $global:IcpAj13 -join "`n"
-                $txt | Should -Match 'AgentTools · icp v1\.0\.0'
+                $txt | Should -Match 'AgentTools · icp v1\.1\.0'
                 $txt | Should -Match 'GALERIA VISUAL DOS ESTADOS'
                 $txt | Should -Match 'COMPOSITOR INTERATIVO'
                 $txt | Should -Match '-KeepBlock'
@@ -1807,7 +1807,7 @@ git add -f \
                 Should -Invoke Set-Clipboard -ModuleName AgentTools -Times 0 -Exactly -Scope It
 
                 $h = Get-Help icp -Full
-                $h.Synopsis | Should -Match '1\.0\.0'
+                $h.Synopsis | Should -Match '1\.1\.0'
                 ($h.description | Out-String) | Should -Match 'REFERÊNCIA VISUAL DOS ESTADOS'
                 ((Get-Help icp -Parameter Demo).description | Out-String) | Should -Match 'simulação visual animada'
                 ((Get-Help icp -Parameter KeepBlock).description | Out-String) | Should -Match 'Mantém visível'
@@ -2089,7 +2089,7 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
                 $rawJson = & pwsh -NoProfile -NoLogo -File $runner
                 $LASTEXITCODE | Should -Be 0
                 $res = ($rawJson | Select-Object -Last 1) | ConvertFrom-Json
-                $res.Version | Should -Be '1.0.0'
+                $res.Version | Should -Be '1.1.0'
                 $res.Antes.Loaded | Should -BeFalse
                 $res.Antes.HasCoreLoad | Should -BeTrue
                 $res.Antes.HasCoreMask | Should -BeTrue
@@ -2144,7 +2144,7 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
             Test-Path -LiteralPath (Join-Path (Get-Module AgentTools).ModuleBase 'XML_CONTRACT.md') | Should -BeFalse
 
             $rOk = Invoke-IcpTeste { 'ok-xml' } @{ Explain = $true }
-            $rOk | Should -Match '<icp_relatorio versao="2" versao_icp="1\.0\.0" resultado="OK" ms_total="\d+" flags="explain">'
+            $rOk | Should -Match '<icp_relatorio versao="2" versao_icp="1\.1\.0" resultado="OK" ms_total="\d+" flags="explain">'
             $idxAviso = $rOk.IndexOf('<aviso>')
             $idxLeg = $rOk.IndexOf('<legenda>')
             $idxAmb = $rOk.IndexOf('<ambiente>')
@@ -2163,7 +2163,7 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
             $rComFalhas | Should -Match 'flags="continue_on_error"'
 
             $rSum = Invoke-IcpTeste { 'linha-sum-' + ('a' * 200) } @{ MaxClipboardChars = 50 }
-            $rSum | Should -Match '<icp_relatorio versao="2" versao_icp="1\.0\.0" resultado="OK" ms_total="\d+" completo="arquivo">'
+            $rSum | Should -Match '<icp_relatorio versao="2" versao_icp="1\.1\.0" resultado="OK" ms_total="\d+" completo="arquivo">'
             $rSum | Should -Match 'linhas="\d+" chars="\d+"'
             $rSum | Should -Match '<previa>linha-sum-'
             $rSum | Should -Match '1 OK, 0 falharam, 0 não executados'
@@ -2303,9 +2303,9 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
     }
 
     Context 'Ajuste 16. Isolamento do motor, hardening 0.9.5, contrato v2 (-Format xml|json|markdown) e disco' {
-        It 'manifesto exige PowerShellVersion >= 7.2 e inclui os metadados públicos da versão 1.0.0' {
+        It 'manifesto exige PowerShellVersion >= 7.2 e inclui os metadados públicos da versão 1.1.0' {
             $psd = Import-PowerShellDataFile -LiteralPath (Join-Path (Get-Module AgentTools).ModuleBase 'AgentTools.psd1')
-            $psd.ModuleVersion | Should -BeExactly '1.0.0'
+            $psd.ModuleVersion | Should -BeExactly '1.1.0'
             $psd.Author | Should -BeExactly 'defNickTCys'
             $psd.PrivateData.PSData.ProjectUri | Should -BeExactly 'https://github.com/defNickTCys/AgentTools'
             $psd.PrivateData.PSData.LicenseUri | Should -BeExactly 'https://github.com/defNickTCys/AgentTools/blob/main/LICENSE'
@@ -2421,7 +2421,7 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
             $rawJson = Invoke-IcpTeste { 'ola-json'; cmd /c "exit 1" } @{ Format = 'json'; AllowedExitCodes = @(1); Explain = $true }
             $obj = $rawJson | ConvertFrom-Json
             $obj.versao | Should -Be 2
-            $obj.versao_icp | Should -Be '1.0.0'
+            $obj.versao_icp | Should -Be '1.1.0'
             $obj.formato | Should -Be 'json'
             $obj.modo | Should -Be 'completo'
             $obj.resultado | Should -Be 'OK'
@@ -2448,7 +2448,7 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
 
         It '-Format markdown gera cercas dinâmicas seguras para crases internas, fecha cerca em teto e escapa inline' {
             $md = Invoke-IcpTeste { '```powershell'; 'Write-Output 1'; '```' } @{ Format = 'markdown' }
-            $md | Should -Match '# Relatório icp v1\.0\.0 \(versao 2\)'
+            $md | Should -Match '# Relatório icp v1\.1\.0 \(versao 2\)'
             $md | Should -Match '````text'
             $md | Should -Match 'Write-Output 1'
 
@@ -2537,6 +2537,200 @@ icp { 'lazy-ok' } -NoClipboard -NoStatus -OutFile '$($outArq.Replace("'", "''"))
                 $env:AGENTTOOLS_ICP_MAX_FILE_CHARS = $fileAntes
                 $env:AGENTTOOLS_ICP_LOGDIR = $logAntes
                 Remove-Item -LiteralPath $dirTmp -Recurse -Force -ErrorAction Ignore
+            }
+        }
+    }
+
+    Context 'Ajuste 17. Issues #4 e #5 (rótulos #*, Ctrl+C, YAML/TOML, máscara, -Interactive)' {
+        It 'rótulos #* aparecem na barra/-Step, preservam <entrada> literal, mascaram segredo e não roubam comentário inline' {
+            $comEnvAntes = $env:AGENTTOOLS_ICP_COMMENT_LABELS
+            try {
+                $env:AGENTTOOLS_ICP_COMMENT_LABELS = $null
+                $seg = 'gh' + 'p_' + ('Q' * 24)
+                $blocoTxt = @"
+'cmd0' # comentario-inline-cmd0
+#* Verificar versao
+'cmd1'
+
+# comentario-comum-ignorado
+'cmd2'
+#* Segredo $seg
+'cmd3'
+"@
+                $r = Invoke-IcpTeste ([scriptblock]::Create($blocoTxt))
+                $r | Should -Match '<comando n="1" status="OK" ms="\d+">\r?\n<entrada>''cmd0''</entrada>'
+                $r | Should -Match '<comando n="2" status="OK" rotulo="Verificar versao" ms="\d+">\r?\n<entrada>''cmd1''</entrada>'
+                $r | Should -Match '<comando n="3" status="OK" ms="\d+">\r?\n<entrada>''cmd2''</entrada>'
+                $r | Should -Match 'rotulo="Segredo \[segredo ocultado: github\]"'
+                $r.Contains($seg) | Should -BeFalse
+
+                # Fallback para '#' comum somente com AGENTTOOLS_ICP_COMMENT_LABELS=1:
+                $env:AGENTTOOLS_ICP_COMMENT_LABELS = '1'
+                $rPlain = Invoke-IcpTeste ([scriptblock]::Create("# Rotulo plano`n'ok'"))
+                $rPlain | Should -Match 'rotulo="Rotulo plano"'
+
+                # -Step exibe rótulo do próximo comando e preserva flag 'step' ao escolher [A]:
+                $env:AGENTTOOLS_ICP_COMMENT_LABELS = $null
+                $global:IcpStepTela = [System.Collections.Generic.List[string]]::new()
+                Mock Test-IcpInterativo -ModuleName AgentTools { $true }
+                Mock Write-Host -ModuleName AgentTools { $global:IcpStepTela.Add([string]$Object) }
+                Mock Read-IcpConfirmacaoPasso -ModuleName AgentTools {
+                    $global:IcpStepProximoRotulo = $ProximoRotulo
+                    return 'todos'
+                }
+                $rStep = Invoke-IcpTeste ([scriptblock]::Create("'a'`n#* Passo Dois`n'b'")) @{ Step = $true; NoStatus = $true }
+                $global:IcpStepProximoRotulo | Should -BeExactly 'Passo Dois'
+                $rStep | Should -Match 'flags="step"'
+                ($global:IcpStepTela -join "`n") | Should -Match 'Passo Dois'
+            }
+            finally {
+                $env:AGENTTOOLS_ICP_COMMENT_LABELS = $comEnvAntes
+                Remove-Variable IcpStepTela, IcpStepProximoRotulo -Scope Global -ErrorAction Ignore
+            }
+        }
+
+        It '-Format yaml e -Format toml geram saída v2 completa, resumo, icp-logs (.yaml/.toml) e respeitam teto 512 chars' {
+            $logAntes = $env:AGENTTOOLS_ICP_LOGDIR
+            $fileAntes = $env:AGENTTOOLS_ICP_MAX_FILE_CHARS
+            $fmtAntes = $env:AGENTTOOLS_ICP_FORMAT
+            $dirTmp = Join-Path $env:TEMP ("icp-fmt17-" + [guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path $dirTmp -Force
+            try {
+                $env:AGENTTOOLS_ICP_LOGDIR = $dirTmp
+
+                # YAML completo com bloco multilinhas e linhas repetidas (indentação inicial preservada):
+                $rYaml = Invoke-IcpTeste ([scriptblock]::Create("#* Lista`n'a'; 'dup','dup','dup'")) @{ Format = 'yaml'; Explain = $true }
+                $rYaml | Should -Match '(?m)^formato: "yaml"\r?$'
+                $rYaml | Should -Match 'rotulo: "Lista"'
+                $rYaml | Should -Match '(?m)^\s+saida: \|2-\r?$'
+                $rYaml | Should -Match '      dup\r?\n        \[\.\.\. linha acima repetida 2 vezes \.\.\.\]'
+
+                # TOML completo com aspas triplas e barras sem null:
+                $rToml = Invoke-IcpTeste ([scriptblock]::Create("#* Teste TOML`n'a""""""b'; 'C:\dir\'")) @{ Format = 'toml' }
+                $rToml | Should -Match '(?m)^formato = "toml"\r?$'
+                $rToml | Should -Match 'rotulo = "Teste TOML"'
+                $rToml | Should -Match '""\\"'
+                $rToml | Should -Match 'C:\\\\dir\\\\'
+                $rToml | Should -Not -Match '(?m)^\w+\s*=\s*null\r?$'
+
+                # Modo resumo em icp-logs gera .yaml e .toml e limpeza >7d remove ambos:
+                foreach ($ext in '.yaml', '.toml') {
+                    $oldF = Join-Path $dirTmp "icp-antigo$ext"
+                    Set-Content -LiteralPath $oldF -Value 'x'
+                    (Get-Item -LiteralPath $oldF).LastWriteTime = (Get-Date).AddDays(-9)
+                }
+                $sumYaml = Invoke-IcpTeste { 'linha-y-' + ('a' * 200) } @{ Format = 'yaml'; MaxClipboardChars = 50 }
+                $sumYaml | Should -Match 'completo: "arquivo"'
+                $sumYaml | Should -Match '\.yaml"'
+                Test-Path (Join-Path $dirTmp 'icp-antigo.yaml') | Should -BeFalse
+                Test-Path (Join-Path $dirTmp 'icp-antigo.toml') | Should -BeFalse
+
+                # Teto estrito de disco 512 chars em YAML e TOML:
+                $env:AGENTTOOLS_ICP_MAX_FILE_CHARS = '512'
+                $blk20 = [scriptblock]::Create(((1..20 | ForEach-Object { "'cmd-$_'" }) -join '; '))
+                $sumY512 = Invoke-IcpTeste $blk20 @{ Format = 'yaml'; MaxClipboardChars = 50 }
+                $arqY512 = [regex]::Match($sumY512, 'caminho: "([^"]+)"').Groups[1].Value.Replace('\\', '\')
+                Test-Path -LiteralPath $arqY512 | Should -BeTrue
+                ([IO.File]::ReadAllText($arqY512)).Length | Should -BeLessOrEqual 512
+
+                $sumT512 = Invoke-IcpTeste $blk20 @{ Format = 'toml'; MaxClipboardChars = 50 }
+                $arqT512 = [regex]::Match($sumT512, 'caminho = "([^"]+)"').Groups[1].Value.Replace('\\', '\')
+                Test-Path -LiteralPath $arqT512 | Should -BeTrue
+                ([IO.File]::ReadAllText($arqT512)).Length | Should -BeLessOrEqual 512
+
+                # AGENTTOOLS_ICP_FORMAT:
+                $env:AGENTTOOLS_ICP_MAX_FILE_CHARS = $fileAntes
+                $env:AGENTTOOLS_ICP_FORMAT = 'yaml'
+                (Invoke-IcpTeste { 'ok-env' }) | Should -Match '(?m)^formato: "yaml"\r?$'
+                (Invoke-IcpTeste { 'ok-exp' } @{ Format = 'json' }) | Should -Match '"formato": "json"'
+                $env:AGENTTOOLS_ICP_FORMAT = 'desconhecido'
+                (Invoke-IcpTeste { 'ok-inv' }) | Should -Match '^<icp_relatorio '
+            }
+            finally {
+                $env:AGENTTOOLS_ICP_LOGDIR = $logAntes
+                $env:AGENTTOOLS_ICP_MAX_FILE_CHARS = $fileAntes
+                $env:AGENTTOOLS_ICP_FORMAT = $fmtAntes
+                Remove-Item -LiteralPath $dirTmp -Recurse -Force -ErrorAction Ignore
+            }
+        }
+
+        It '-Interactive e #* interactive respeitam contrato, fallback não interativo, passthrough simulado, erros e :interactive' {
+            $p = (Get-Command icp).Parameters['Interactive']
+            $p | Should -Not -BeNullOrEmpty
+            $p.ParameterType | Should -Be ([switch])
+            $attr = $p.Attributes.Where({ $_ -is [Parameter] }) | Select-Object -First 1
+            $attr.Mandatory | Should -BeFalse
+            $attr.Position | Should -BeLessThan 0
+            $attr.ParameterSetName | Should -Be 'Exec'
+
+            # Fallback não interativo avisa e executa em modo capturado sem flag interactive:
+            $rFallback = Invoke-IcpTeste { 'cap-ok' } @{ Interactive = $true }
+            $rFallback | Should -Not -Match 'flags="[^"]*interactive'
+            $rFallback | Should -Not -Match 'interativo="true"'
+            Should -Invoke Write-Host -ModuleName AgentTools -ParameterFilter { "$Object" -like '*-Interactive ignorado*' }
+            Get-Linhas $rFallback | Should -Contain 'cap-ok'
+
+            # Modo interativo simulado captura erro não-terminante em $global:Error e marca flags/interativo:
+            Mock Test-IcpInterativo -ModuleName AgentTools { $true }
+            Mock Out-Host -ModuleName AgentTools { }
+            $rInt = Invoke-IcpTeste ([scriptblock]::Create("Write-Output 'inter-1'`n#* interactive: Limpando item`nWrite-Error 'falha-interativa'")) @{ NoStatus = $true }
+            $rInt | Should -Match 'flags="interactive"'
+            $rInt | Should -Match '<comando n="1" status="OK" ms="\d+">'
+            $rInt | Should -Match '<comando n="2" status="FALHOU" rotulo="Limpando item" interativo="true" ms="\d+">'
+            $rInt | Should -Match '\[icp: comando executado em modo interativo \(saída exibida diretamente no console\)\]'
+            $rInt | Should -Match 'falha-interativa'
+
+            InModuleScope AgentTools {
+                $est = New-IcpCompositorState
+                $est.Interactive | Should -BeFalse
+                (Invoke-IcpCompositorComando -Estado $est -Entrada ':interactive').Acao | Should -Be 'interactive'
+                $est.Interactive | Should -BeTrue
+            }
+        }
+
+        It 'interrupção por PipelineStoppedException (Ctrl+C) encerra filhos com nome#pid real e grava relatório parcial' {
+            $psdPath = Join-Path (Get-Module AgentTools).ModuleBase 'AgentTools.psd1'
+            $arqOut = Join-Path $env:TEMP ("icp-ctrlc-" + [guid]::NewGuid().ToString('N') + '.xml')
+            $ps = [powershell]::Create()
+            try {
+                $null = $ps.AddScript(@"
+Import-Module '$($psdPath.Replace("'", "''"))' -Force
+icp -NoClipboard -NoStatus -OutFile '$($arqOut.Replace("'", "''"))' {
+    'antes-ctrlc-sdk'
+    `$null = Start-Process pwsh -ArgumentList @('-NoProfile', '-NoLogo', '-Command', 'Start-Sleep 30') -WindowStyle Hidden
+    Start-Sleep 20
+    'segundo-nao-rodou'
+}
+"@)
+                $async = $ps.BeginInvoke()
+                Start-Sleep -Milliseconds 1300
+                $stopAsync = $ps.BeginStop($null, $null)
+                $null = $stopAsync.AsyncWaitHandle.WaitOne(8000)
+                try { $ps.EndInvoke($async) } catch { $null = $_ }
+
+                Test-Path -LiteralPath $arqOut | Should -BeTrue
+                $xmlTxt = [IO.File]::ReadAllText($arqOut)
+                $xmlTxt | Should -Match 'resultado="INTERROMPIDO pelo operador \(3 de 4 executados\)"'
+                $xmlTxt | Should -Match '<comando n="3" status="INTERROMPIDO"[^>]*>'
+                $xmlTxt | Should -Match 'filho="[^"]*pwsh(\.exe)?#\d+[^"]*"'
+                $xmlTxt | Should -Match 'sem_saida_s="\d+"'
+                $xmlTxt | Should -Match 'antes-ctrlc-sdk'
+                $xmlTxt | Should -Match '<comando n="4" status="NAO_EXECUTADO">'
+            }
+            finally {
+                $ps.Dispose()
+                Remove-Item -LiteralPath $arqOut -Force -ErrorAction Ignore
+            }
+        }
+
+        It 'novas funções auxiliares da 1.1 permanecem privadas' {
+            $exp = @((Get-Module AgentTools).ExportedFunctions.Keys)
+            $exp.Count | Should -Be 1
+            foreach ($priv in 'Test-IcpAtribuicaoValorSegredo', 'Get-IcpStatementMeta', 'Test-IcpInterativoDireto',
+                'Format-IcpYamlScalar', 'Add-IcpYamlBlock', 'Format-IcpReportYaml',
+                'Format-IcpTomlString', 'Format-IcpTomlMultilineString', 'Format-IcpReportToml',
+                'Format-IcpMinimalStructuredReport', 'ConvertTo-IcpCommandOutput', 'Complete-IcpReportDelivery') {
+                $exp | Should -Not -Contain $priv
             }
         }
     }

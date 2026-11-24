@@ -4,9 +4,10 @@
         Justification = 'Cria objeto de estado em memória para o rascunho do compositor.')]
     param()
     return [pscustomobject]@{
-        Linhas  = [System.Collections.Generic.List[string]]::new()
-        Explain = $false
-        Step    = $false
+        Linhas      = [System.Collections.Generic.List[string]]::new()
+        Explain     = $false
+        Step        = $false
+        Interactive = $false
     }
 }
 
@@ -86,6 +87,11 @@ function Invoke-IcpCompositorComando {
         $estadoTxt = if ($Estado.Step) { 'ligado' } else { 'desligado' }
         return [pscustomobject]@{ Acao = 'step'; Mensagem = "Modo -Step (passo a passo): $estadoTxt."; Avisos = @(); ErrosSintaxe = @(); Incompleto = $false }
     }
+    if ($trim -match '^(?i):interactive$') {
+        $Estado.Interactive = -not $Estado.Interactive
+        $estadoTxt = if ($Estado.Interactive) { 'ligado' } else { 'desligado' }
+        return [pscustomobject]@{ Acao = 'interactive'; Mensagem = "Modo -Interactive: $estadoTxt."; Avisos = @(); ErrosSintaxe = @(); Incompleto = $false }
+    }
     if ($trim -match '^(?i):(?:list|ls)$') {
         $chk = Test-IcpCompositorRascunho -Linhas $Estado.Linhas.ToArray()
         return [pscustomobject]@{ Acao = 'lista'; Mensagem = ''; Avisos = @($chk.PreVoo); ErrosSintaxe = @($chk.ErrosSintaxe); Incompleto = $chk.Incompleto }
@@ -135,7 +141,7 @@ function Invoke-IcpCompositorComando {
         return [pscustomobject]@{ Acao = 'erro'; Mensagem = 'Uso: :edit <N> <novo comando>'; Avisos = @(); ErrosSintaxe = @(); Incompleto = $false }
     }
     if ($trim.StartsWith(':')) {
-        return [pscustomobject]@{ Acao = 'erro'; Mensagem = "Comando desconhecido: $trim (use :list, :del, :edit, :clear, :explain, :cancel)."; Avisos = @(); ErrosSintaxe = @(); Incompleto = $false }
+        return [pscustomobject]@{ Acao = 'erro'; Mensagem = "Comando desconhecido: $trim (use :list, :del, :edit, :clear, :explain, :step, :interactive, :cancel)."; Avisos = @(); ErrosSintaxe = @(); Incompleto = $false }
     }
     $cand = @($Estado.Linhas.ToArray()) + @($Entrada)
     $resChk = Resolve-IcpCompositorAviso -LinhasCandidatas $cand -Linha $Entrada -NumeroLinha $cand.Count
@@ -303,7 +309,7 @@ function Show-IcpInicioCartao {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
         Justification = 'Exibe o cartão de abertura do compositor interativo no terminal.')]
     param([int]$WindowWidth = 120)
-    $ver = if ($script:AgentToolsVersion) { $script:AgentToolsVersion } else { '1.0.0' }
+    $ver = if ($script:AgentToolsVersion) { $script:AgentToolsVersion } else { '1.1.0' }
     $dir = (Get-Location).Path
     $git = ''
     if ((Get-Location).Provider.Name -eq 'FileSystem' -and (Get-Command git -CommandType Application -ErrorAction Ignore)) {
@@ -315,7 +321,7 @@ function Show-IcpInicioCartao {
     $linhas = @(
         "$(Format-IcpCor '╭─' 'Petroleo') $(Format-IcpCor "AgentTools · icp v$ver" 'Ambar' -Negrito) $(Format-IcpCor '· compositor interativo' 'Neutro')"
         "$(Format-IcpCor '│ ' 'Pedra')$(Format-IcpCor 'pasta:' 'Neutro') $(Format-IcpCor $dir 'Creme')$(if ($git) { "  $(Format-IcpCor "git: $git" 'PetroleoClaro')" })  $(Format-IcpCor "logs: $logsCount" 'Pedra')"
-        "$(Format-IcpCor '│ ' 'Pedra')$(Format-IcpCor 'comandos:' 'Neutro') $(Format-IcpCor ':list' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':del [N]' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':edit N txt' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':clear' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':explain' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':step' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':cancel' 'PetroleoClaro')"
+        "$(Format-IcpCor '│ ' 'Pedra')$(Format-IcpCor 'comandos:' 'Neutro') $(Format-IcpCor ':list' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':del [N]' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':edit N txt' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':clear' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':explain' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':step' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':interactive' 'PetroleoClaro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor ':cancel' 'PetroleoClaro')"
         "$(Format-IcpCor '╰─' 'Petroleo') $(Format-IcpCor 'Um comando por linha (rejeita pré-voo/erro na hora). Enter em linha vazia executa.' 'Neutro')"
     )
     $emitidas = 0
@@ -347,6 +353,7 @@ function Invoke-IcpCompositor {
         $tags = @()
         if ($estado.Explain) { $tags += (Format-IcpCor '[-Explain]' 'PetroleoClaro') }
         if ($estado.Step) { $tags += (Format-IcpCor '[-Step]' 'Ambar') }
+        if ($estado.Interactive) { $tags += (Format-IcpCor '[-Interactive]' 'Oliva') }
         $tagExp = if ($tags.Count -gt 0) { ' ' + ($tags -join ' ') } else { '' }
         $prompt = "  $(Format-IcpCor "$n" 'Ambar')$tagExp $(Format-IcpCor '›' 'PetroleoClaro') "
         $promptVis = (Remove-Ansi -Text $prompt).Length
@@ -355,7 +362,7 @@ function Invoke-IcpCompositor {
             Write-Host ''
             $linhasTela++
             Write-Host (Format-IcpCor 'icp: compositor cancelado.' 'Neutro')
-            return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; LinhasTela = 0 }
+            return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; Interactive = $false; LinhasTela = 0 }
         }
         $subs = @($entrada -split '\r?\n')
         for ($si = 0; $si -lt $subs.Count; $si++) {
@@ -366,7 +373,7 @@ function Invoke-IcpCompositor {
         switch ($res.Acao) {
             'cancelar' {
                 $linhasTela += & $emit (Format-IcpCor 'icp: compositor cancelado (nada foi executado).' 'Neutro')
-                return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; LinhasTela = 0 }
+                return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; Interactive = $false; LinhasTela = 0 }
             }
             'rejeitado' {
                 foreach ($av in $res.Avisos) {
@@ -385,12 +392,12 @@ function Invoke-IcpCompositor {
                     $resp = try { [Console]::ReadLine() } catch { $null }
                     if ($null -eq $resp) {
                         Write-Host ''
-                        return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; LinhasTela = 0 }
+                        return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; Interactive = $false; LinhasTela = 0 }
                     }
                     $linhasTela += [Math]::Max(1, [int][Math]::Ceiling(($pVazioVis + $resp.Length) / [double]$w))
                     if ($resp.Trim() -match '^(?i)a$') { continue }
                     $linhasTela += & $emit (Format-IcpCor 'icp: compositor cancelado.' 'Neutro')
-                    return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; LinhasTela = 0 }
+                    return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; Interactive = $false; LinhasTela = 0 }
                 }
                 $pConf = "  $(Format-IcpCor '[Enter/S]' 'Oliva') $(Format-IcpCor 'Executar' 'Creme') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor '[P]' 'Ambar') $(Format-IcpCor 'Passo a passo' 'Neutro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor '[A]' 'PetroleoClaro') $(Format-IcpCor 'Continuar' 'Neutro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor '[E]' 'Ambar') $(Format-IcpCor '-Explain' 'Neutro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor '[C]' 'Terracota') $(Format-IcpCor 'Cancelar › ' 'Neutro')"
                 $pConfVis = (Remove-Ansi -Text $pConf).Length
@@ -398,13 +405,13 @@ function Invoke-IcpCompositor {
                 $resp = try { [Console]::ReadLine() } catch { $null }
                 if ($null -eq $resp) {
                     Write-Host ''
-                    return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; LinhasTela = 0 }
+                    return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; Interactive = $false; LinhasTela = 0 }
                 }
                 $linhasTela += [Math]::Max(1, [int][Math]::Ceiling(($pConfVis + $resp.Length) / [double]$w))
                 $op = $resp.Trim()
                 if ($op -match '^(?i)(?:c|cancel|n)$') {
                     $linhasTela += & $emit (Format-IcpCor 'icp: compositor cancelado (nada foi executado).' 'Neutro')
-                    return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; LinhasTela = 0 }
+                    return [pscustomobject]@{ Executar = $false; ScriptBlock = $null; Explain = $false; Step = $false; Interactive = $false; LinhasTela = 0 }
                 }
                 if ($op -match '^(?i)a$') { continue }
                 if ($op -eq '' -or $op -match '^(?i)(?:s|sim|y|p|passo|step|e|explain)$') {
@@ -415,7 +422,7 @@ function Invoke-IcpCompositor {
                         $linhasTela += & $emit (Format-IcpCor "  [SINTAXE] $($comp.Erro) — corrija com :edit ou :del." 'Terracota')
                         continue
                     }
-                    return [pscustomobject]@{ Executar = $true; ScriptBlock = $comp.ScriptBlock; Explain = $usarExplain; Step = $usarStep; LinhasTela = $linhasTela }
+                    return [pscustomobject]@{ Executar = $true; ScriptBlock = $comp.ScriptBlock; Explain = $usarExplain; Step = $usarStep; Interactive = $estado.Interactive; LinhasTela = $linhasTela }
                 }
                 $linhasTela += & $emit (Format-IcpCor '  Opção não reconhecida; voltando à edição.' 'Ambar')
             }
@@ -437,7 +444,7 @@ function Invoke-IcpCompositor {
                 }
             }
             'ajuda' {
-                $linhasTela += & $emit (Format-IcpCor '  :list | :del [N] | :edit N <cmd> | :clear | :explain | :step | :cancel | Enter vazio executa' 'PetroleoClaro')
+                $linhasTela += & $emit (Format-IcpCor '  :list | :del [N] | :edit N <cmd> | :clear | :explain | :step | :interactive | :cancel | Enter vazio executa' 'PetroleoClaro')
             }
             'erro' {
                 $linhasTela += & $emit (Format-IcpCor "  $($res.Mensagem)" 'Terracota')
@@ -456,12 +463,18 @@ function Invoke-IcpCompositor {
 }
 
 function Read-IcpConfirmacaoPasso {
-    # Pausa entre comandos em -Step mostrando o próximo comando colorido e aguardando decisão do operador.
+    # Pausa entre comandos em -Step mostrando o próximo comando (ou rótulo #*) colorido e aguardando decisão do operador.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
         Justification = 'Exibe prompt de confirmação passo a passo no terminal interativo.')]
-    param([int]$ProximoN, [int]$Total, [string]$ProximoComando)
+    param([int]$ProximoN, [int]$Total, [string]$ProximoComando, [string]$ProximoRotulo = '')
     $borda = Format-IcpCor '│ ' 'Pedra'
-    Write-Host "$borda$(Format-IcpCor '▸' 'Ambar') $(Format-IcpCor "Próximo [$ProximoN/$Total]:" 'Ambar' -Negrito) $(Format-IcpComandoColorido -Texto $ProximoComando)"
+    if (-not [string]::IsNullOrWhiteSpace($ProximoRotulo)) {
+        Write-Host "$borda$(Format-IcpCor '▸' 'Ambar') $(Format-IcpCor "Próximo [$ProximoN/$Total]:" 'Ambar' -Negrito) $(Format-IcpCor $ProximoRotulo 'Creme' -Negrito)"
+        Write-Host "$borda  $(Format-IcpCor '$' 'Pedra') $(Format-IcpComandoColorido -Texto $ProximoComando)"
+    }
+    else {
+        Write-Host "$borda$(Format-IcpCor '▸' 'Ambar') $(Format-IcpCor "Próximo [$ProximoN/$Total]:" 'Ambar' -Negrito) $(Format-IcpComandoColorido -Texto $ProximoComando)"
+    }
     while ($true) {
         $p = "$(Format-IcpCor '│   ' 'Pedra')$(Format-IcpCor '[Enter/S]' 'Oliva') $(Format-IcpCor 'Executar' 'Creme') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor '[A]' 'PetroleoClaro') $(Format-IcpCor 'Rodar restantes' 'Neutro') $(Format-IcpCor '·' 'Pedra') $(Format-IcpCor '[C]' 'Terracota') $(Format-IcpCor 'Parar aqui › ' 'Neutro')"
         [Console]::Write($p)

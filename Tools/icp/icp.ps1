@@ -1,23 +1,28 @@
 ﻿function icp {
     <#
     .SYNOPSIS
-    Executa cada comando do bloco UMA vez e gera um relatório estruturado para IAs ou leitura (AgentTools v1.0.0).
+    Executa cada comando do bloco UMA vez e gera um relatório estruturado para IAs ou leitura (AgentTools v1.1.0).
     .DESCRIPTION
     ╭────────────────────────────────────────────────────────────────────────╮
-    │   ╦ ╔═╗ ╔═╗   AgentTools · icp v1.0.0                                  │
+    │   ╦ ╔═╗ ╔═╗   AgentTools · icp v1.1.0                                  │
     │   ║ ║   ╠═╝   Executor com relatório compacto e seguro para IAs        │
     │   ╩ ╚═╝ ╩     PS 7.2+ · Gruvbox/Terminal · DEC 2026 · Contrato v2      │
     ╰────────────────────────────────────────────────────────────────────────╯
 
     ▸ COMO FUNCIONA
       • Chamar 'icp' sem argumentos em terminal interativo abre o cartão de abertura
-        e o compositor linha a linha (:list, :del, :edit, :clear, :explain, :step, :cancel),
-        com realce de sintaxe do PSReadLine e rejeição imediata de linhas inválidas
-        ou bloqueadas no pré-voo (blocos abertos como 'if (...) {' continuam).
+        e o compositor linha a linha (:list, :del, :edit, :clear, :explain, :step,
+        :interactive, :cancel), com realce de sintaxe do PSReadLine e rejeição
+        imediata de linhas inválidas ou bloqueadas no pré-voo (blocos abertos como
+        'if (...) {' continuam).
       • Com bloco { ... }, roda cada comando UMA vez em sequência dentro de um escopo
         isolado do motor (variáveis internas como $__total não conflitam) e para na
         1ª falha (ou pausa entre comandos com -Step). Use -AllowedExitCodes para
         aceitar códigos não-zero legítimos como OK.
+      • Rótulos legíveis: comentários imediatamente anteriores no formato '#* descrição'
+        exibem um nome humano na barra ao vivo e no -Step mantendo o comando literal
+        em <entrada>. Use '#* interactive' (ou -Interactive) para permitir UI/prompts
+        interativos no console do Windows.
       • Em modo interativo, recolhe o bloco original da tela ao iniciar (use -KeepBlock
         para preservá-lo; blocos maiores que a altura visível da janela não recolhem).
       • Pré-voo (AST): bloqueia '\' Bash, begin/process/clean/dynamicparam,
@@ -31,12 +36,15 @@
       • Saída e comandos na tela mantêm cores nativas do terminal (desative a injeção
         forçada de cor em nativos via AGENTTOOLS_ICP_NOFORCECOLOR=1); o relatório
         permanece puro no contrato versao="2" (Tools/icp/Contracts/REPORT_CONTRACT.md)
-        com suporte a -Format xml (padrão), json ou markdown.
+        com suporte a -Format xml (padrão), json, markdown, yaml ou toml
+        (configurável via AGENTTOOLS_ICP_FORMAT).
+      • Interrupção por Ctrl+C encerra filhos ativos com listagem nome#pid real e
+        emite o relatório parcial (status INTERROMPIDO) com saída capturada até o corte.
       • Padrão compacto: omite <legenda> e encurta aviso/ambiente; use
         -Explain no 1º envio a uma IA nova.
       • Acima de MaxClipboardChars, grava em %TEMP%\AgentTools\icp-logs
         (ou $env:AGENTTOOLS_ICP_LOGDIR) com criação exclusiva e limpeza > 7 dias
-        (.txt, .json, .md).
+        (.txt, .json, .md, .yaml, .toml).
       • Para esta ajuda completa em TUI colorida com parâmetros e exemplos, rode: icp -Help -Full
 
     ▸ REFERÊNCIA VISUAL DOS ESTADOS
@@ -55,7 +63,7 @@
 
     ▸ PARÂMETROS (bloco obrigatório na posição 0 em -Exec; sem args abre compositor)
       Relatório, Formato & Tokens:
-        -Format <xml|json|markdown> Formato do relatório v2 (padrão: xml compacto)
+        -Format <formato>           Formato v2: xml (padrão), json, markdown, yaml ou toml
         -Explain                    Inclui legenda, aviso e ambiente completos
         -Raw                        Desliga deduplicação (3+) e limites de linhas/largura
         -MaxLinesPerCommand <N>     Limite por comando (padrão: 150, mín: 10)
@@ -63,6 +71,7 @@
         -RedirectTailLines <N>      Linhas finais de >, >>, 2> (padrão: 5; 0 desliga)
       Execução, Tela & Pré-voo:
         -Step                       Pausa após cada comando ([Enter/S] seguir, [A] restantes, [C] parar)
+        -Interactive                Executa com passthrough de console/UI (ou '#* interactive' pontual)
         -ContinueOnError            Roda todos mesmo com falha (lotes de leitura)
         -AllowedExitCodes <int[]>   Códigos não-zero aceitos como OK (mantém exit e exit_permitido)
         -AllowTrailingBackslash     Libera apenas '\' isolado no fim de comando
@@ -101,8 +110,10 @@
     abre o compositor interativo (ou mostra linha de uso se não interativo).
     .PARAMETER Format
     Formato de saída do relatório v2: 'xml' (padrão, estilo XML compacto otimizado para LLMs),
-    'json' (JSON estrito parseável por máquinas/scripts) ou 'markdown' (leitura humana com
-    cercas dinâmicas). Arquivos excedentes em icp-logs usam extensão .txt, .json ou .md.
+    'json' (JSON estrito parseável por máquinas/scripts), 'markdown' (leitura humana com
+    cercas dinâmicas), 'yaml' (YAML 1.2 com block scalars legível e compacto) ou 'toml'
+    (TOML 1.0 estrito). Quando omitido, respeita AGENTTOOLS_ICP_FORMAT se válido.
+    Arquivos excedentes em icp-logs usam extensão .txt, .json, .md, .yaml ou .toml.
     .PARAMETER MaxLinesPerCommand
     Máximo de linhas por comando no relatório (mínimo 10). Acima disso, mostra as
     primeiras 2/3 e as últimas 1/5 e marca quantas foram omitidas.
@@ -114,9 +125,15 @@
     envio para arquivo.
     .PARAMETER Step
     Pausa após cada comando exibido em modo interativo, mostrando o próximo comando
-    e aguardando confirmação ([Enter/S] Executar próximo, [A] Rodar restantes ou
-    [C] Parar aqui). Comandos não executados são marcados como NAO_EXECUTADO.
+    (ou seu rótulo '#*') e aguardando confirmação ([Enter/S] Executar próximo, [A] Rodar
+    restantes ou [C] Parar aqui). Comandos não executados são marcados como NAO_EXECUTADO.
     Em modo não interativo, emite aviso e executa sem pausas.
+    .PARAMETER Interactive
+    Executa os comandos do bloco em modo interativo opt-in (passthrough de console/UI),
+    permitindo diálogos do Windows (ex.: CryptoAPI) e prompts de console (Read-Host, SSH,
+    Git) sem captura que bloqueie a UI. A saída vai direto para o terminal e o relatório
+    registra interativo="true" (ou use '#* interactive' acima de um comando específico).
+    Em modo não interativo, emite aviso e executa no modo capturado padrão.
     .PARAMETER ContinueOnError
     Executa todos os comandos mesmo com falha; o resultado diz COM FALHAS e lista
     quais. Indicado para lotes só de leitura.
@@ -218,6 +235,12 @@
     icp -CommandTimeoutSeconds 30 -OutFile .\relatorio.txt { npm test }
     Limita cada comando em 30s e grava o relatório completo diretamente em arquivo sem alterar a área de transferência.
     .EXAMPLE
+    icp -Format yaml { #* Status do repo; git status --short }
+    Usa rótulo legível '#*' na barra ao vivo e gera relatório estruturado em YAML.
+    .EXAMPLE
+    icp -Interactive { Remove-Item 'Cert:\CurrentUser\Root\<thumbprint>' }
+    Executa com passthrough de UI/console no Windows registrando o comando como interativo no relatório v2.
+    .EXAMPLE
     icp -Help -Full
     Exibe a ajuda TUI colorida completa com entradas/saídas, parâmetros e exemplos no terminal.
     .EXAMPLE
@@ -235,7 +258,7 @@
         [Parameter(Mandatory, Position = 0, ParameterSetName = 'Exec')]
         [scriptblock]$ScriptBlock,
         [Parameter(ParameterSetName = 'Exec')]
-        [ValidateSet('xml', 'json', 'markdown')]
+        [ValidateSet('xml', 'json', 'markdown', 'yaml', 'toml')]
         [string]$Format = 'xml',
         [Parameter(ParameterSetName = 'Exec')]
         [ValidateRange(10, [int]::MaxValue)]
@@ -268,6 +291,8 @@
         [Parameter(ParameterSetName = 'Exec')]
         [switch]$Step,
         [Parameter(ParameterSetName = 'Exec')]
+        [switch]$Interactive,
+        [Parameter(ParameterSetName = 'Exec')]
         [switch]$NoStatus,
         [Parameter(ParameterSetName = 'Exec')]
         [ValidateRange(0, [int]::MaxValue)]
@@ -292,12 +317,13 @@
         Write-Error -Message "icp: falha ao carregar a ferramenta 'icp': $($_.Exception.Message)" -ErrorId 'IcpLoadFailure'
         return
     }
-    Invoke-IcpEngine -ScriptBlock $ScriptBlock -Format $Format -MaxLinesPerCommand $MaxLinesPerCommand `
+    Invoke-IcpEngine -ScriptBlock $ScriptBlock -Format $Format -FormatExplicit ($PSBoundParameters.ContainsKey('Format')) `
+        -MaxLinesPerCommand $MaxLinesPerCommand `
         -MaxLineLength $MaxLineLength -Raw:$Raw -ContinueOnError:$ContinueOnError `
         -AllowedExitCodes $AllowedExitCodes -MaxClipboardChars $MaxClipboardChars `
         -NoMask:$NoMask -RedirectTailLines $RedirectTailLines -OutFile $OutFile `
         -NoClipboard:$NoClipboard -AllowTrailingBackslash:$AllowTrailingBackslash `
-        -Explain:$Explain -Step:$Step -NoStatus:$NoStatus `
+        -Explain:$Explain -Step:$Step -Interactive:$Interactive -NoStatus:$NoStatus `
         -CommandTimeoutSeconds $CommandTimeoutSeconds -KeepBlock:$KeepBlock `
         -Help:$Help -Full:$Full -Demo:$Demo `
         -ModoOutFile ($PSBoundParameters.ContainsKey('OutFile')) `
