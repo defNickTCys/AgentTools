@@ -1,6 +1,6 @@
 ﻿@{
     Name              = 'icp'
-    Version           = '1.0.0'
+    Version           = '1.1.0'
     Entrypoint        = 'icp.ps1'
     ExportedFunctions = @('icp')
     RequiresCore      = @('Loader', 'Masking', 'Theme', 'Terminal', 'Process')
@@ -10,6 +10,8 @@
         'Features\Formatters\Xml.ps1'
         'Features\Formatters\Json.ps1'
         'Features\Formatters\Markdown.ps1'
+        'Features\Formatters\Yaml.ps1'
+        'Features\Formatters\Toml.ps1'
         'Features\StatusBar.ps1'
         'Features\Compositor.ps1'
         'Features\Help.ps1'

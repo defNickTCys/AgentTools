@@ -323,6 +323,37 @@ Describe 'AgentTools Core' {
                 $c | Should -BeGreaterThan 0
             }
         }
+
+        It 'atribuicao evita falsos positivos em literais curtos e preserva falha-fechada em segredos reais' {
+            InModuleScope AgentTools {
+                foreach ($seguro in @(
+                        'LITELLM_API_KEY: 27 modelos',
+                        'OPENAI_API_KEY: True',
+                        'API_KEY=False',
+                        'API_KEY: OK',
+                        'API_KEY: 401',
+                        'API_KEY: ausente',
+                        'TOKEN: definido'
+                    )) {
+                    $c = 0
+                    $out = Hide-IcpSegredo -Text $seguro -Contagem ([ref]$c)
+                    $out | Should -BeExactly $seguro
+                    $c | Should -Be 0
+                }
+
+                $pin1 = 'pass' + 'word=111111'
+                $pin2 = 'pass' + 'word=1234'
+                $realKey = 'LITELLM_API_' + 'KEY=segredo-real-xyz99'
+                $realJson = '{"client_' + 'secret": "' + ('w' * 12) + '"}'
+                foreach ($real in @($pin1, $pin2, $realKey, $realJson)) {
+                    $c = 0
+                    $out = Hide-IcpSegredo -Text $real -Contagem ([ref]$c)
+                    $out | Should -Match '\[segredo ocultado: atribuicao\]'
+                    $out.Contains($real) | Should -BeFalse
+                    $c | Should -Be 1
+                }
+            }
+        }
     }
 
     Context '3. Core/Process e Core/Terminal (namespace versionado, GetProcessTimes e cleanup)' {
@@ -332,7 +363,7 @@ Describe 'AgentTools Core' {
                 $pt = Get-AgentToolsProcessTreeType
                 $pt | Should -Not -BeNullOrEmpty
                 $pt.Namespace | Should -BeExactly $script:AgentToolsTypeNamespace
-                $pt.Namespace | Should -Match '^AgentTools\.V1_0_0$'
+                $pt.Namespace | Should -Match '^AgentTools\.V1_1_0$'
 
                 $myCt = $pt::GetProcessCreationTime($PID)
                 $myCt | Should -BeGreaterThan 0
@@ -384,6 +415,16 @@ Describe 'AgentTools Core' {
                 $encOut = [Console]::OutputEncoding
                 $encIn = [Console]::InputEncoding
                 { Restore-AgentToolsConsoleState -OutputEncoding $encOut -InputEncoding $encIn } | Should -Not -Throw
+            }
+        }
+
+        It 'Get-AgentToolsNewChild e Stop-AgentToolsNewChild retornam array vazio sem envolver em item único' {
+            InModuleScope AgentTools {
+                $base = Get-AgentToolsProcessBaseline -RootPid $PID
+                $novos = @(Get-AgentToolsNewChild -RootPid $PID -Baseline $base)
+                $mortos = @(Stop-AgentToolsNewChild -RootPid $PID -Baseline $base)
+                $novos.Count | Should -Be 0
+                $mortos.Count | Should -Be 0
             }
         }
     }

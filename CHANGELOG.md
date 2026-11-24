@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0
+
+### Adicionado
+- Rótulos descritivos por comando via comentários `#* <descrição>` antes da instrução (e suporte opcional a comentários `#` simples com `AGENTTOOLS_ICP_COMMENT_LABELS=1`), exibidos na barra de status, no prompt `-Step` e no atributo/campo `rotulo` de todos os formatos de relatório.
+- Novos formatadores de saída `-Format yaml` (`YAML 1.2` com blocos escalares `|2-`) e `-Format toml` (`TOML 1.0`), além de retenção `.yaml`/`.toml` em `icp-logs`.
+- Suporte à variável de ambiente `AGENTTOOLS_ICP_FORMAT` para definir o formato padrão com precedência `-Format` > `AGENTTOOLS_ICP_FORMAT` > `xml`.
+- Modo interativo direto por parâmetro `-Interactive`, comentário `#* interactive` ou token `:interactive` no compositor, executando comandos sem captura de *pipe* para preservar TTY (`IsInputRedirected=False`, `IsOutputRedirected=False`), com captura de erros não terminativos e aviso em sessões não interativas.
+
+### Corrigido
+- Entrega garantida de relatório parcial em interrupção por `Ctrl+C` (`status="INTERROMPIDO"`), com encerramento correto dos processos filhos reportados em `filho` (sem sufixo vazio), medição de `sem_saida_s`, registro de comandos restantes como `NAO_EXECUTADO` e preservação de `flags="step"` ao escolher `[A]`.
+- Redução de falsos positivos no mascaramento de atribuições via `Test-IcpAtribuicaoValorSegredo`, preservando valores não secretos (contagens, booleanos, códigos HTTP, rótulos descritivos) enquanto continua mascarando senhas, chaves e tokens reais.
+- Detecção antecipada de processos filhos ativos na barra de status (`_lastChildCheckMs = -650`).
+
+### Documentação
+- Atualizados `README.md`, `Tools/icp/README.md`, `Tools/icp/Contracts/REPORT_CONTRACT.md`, ajuda integrada (`Get-Help icp` / `-?`) e `skills/icp/SKILL.md`.
+
 ## 1.0.0
 
 - Publica o AgentTools como módulo independente, com instalação documentada, metadados do projeto e licença MIT.

@@ -1,6 +1,6 @@
 ﻿@{
     RootModule        = 'AgentTools.psm1'
-    ModuleVersion     = '1.0.0'
+    ModuleVersion     = '1.1.0'
     GUID              = '49e84889-31ea-486e-97f0-dc8e60a551ee'
     Author            = 'defNickTCys'
     Description       = 'Utilitários de terminal do operador: icp executa cada comando uma vez, para na primeira falha e gera relatório estruturado (XML, JSON ou Markdown) para IA ou leitura.'

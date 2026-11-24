@@ -252,9 +252,14 @@ function Get-IcpErroSilenciosoCount {
 }
 
 function Get-IcpAtributosComando {
-    # Monta atributos XML de <comando> (exit, exit_permitido, ms e opcionais silenciosos/segundo_plano).
+    # Monta atributos XML de <comando> (rotulo, interativo, exit, exit_permitido, ms e opcionais silenciosos/segundo_plano/filho/sem_saida_s).
     param($Registro)
-    $attr = if ($null -ne $Registro.Exit) { " exit=""$($Registro.Exit)""" } else { '' }
+    $attr = ''
+    if (-not [string]::IsNullOrWhiteSpace($Registro.Rotulo)) {
+        $attr += " rotulo=""$(Protect-IcpAtributo $Registro.Rotulo)"""
+    }
+    if ($Registro.Interativo) { $attr += ' interativo="true"' }
+    if ($null -ne $Registro.Exit) { $attr += " exit=""$($Registro.Exit)""" }
     if ($Registro.ExitPermitido) { $attr += ' exit_permitido="true"' }
     $attr += " ms=""$($Registro.Ms)"""
     if ($Registro.Silenciosos -gt 0) { $attr += " silenciosos=""$($Registro.Silenciosos)""" }
@@ -262,6 +267,14 @@ function Get-IcpAtributosComando {
     if ($spItens.Count -gt 0) {
         $sp = (Protect-IcpAtributo ($spItens -join ', '))
         $attr += " segundo_plano=""$sp"""
+    }
+    $filhoItens = @($Registro.Filho | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($filhoItens.Count -gt 0) {
+        $fh = (Protect-IcpAtributo ($filhoItens -join ', '))
+        $attr += " filho=""$fh"""
+    }
+    if ($null -ne $Registro.SemSaidaS) {
+        $attr += " sem_saida_s=""$([int]$Registro.SemSaidaS)"""
     }
     return $attr
 }
@@ -276,13 +289,15 @@ function Get-IcpFlagList {
         [bool]$NoMask,
         [bool]$AllowTrailingBackslash,
         [int[]]$AllowedExitCodes,
-        [int]$CommandTimeoutSeconds
+        [int]$CommandTimeoutSeconds,
+        [bool]$Interactive = $false
     )
     $flags = [System.Collections.Generic.List[string]]::new()
     if ($Explain) { $flags.Add('explain') }
     if ($Raw) { $flags.Add('raw') }
     if ($ContinueOnError) { $flags.Add('continue_on_error') }
     if ($Step) { $flags.Add('step') }
+    if ($Interactive) { $flags.Add('interactive') }
     if ($NoMask) { $flags.Add('no_mask') }
     if ($AllowTrailingBackslash) { $flags.Add('allow_trailing_backslash') }
     $codes = @($AllowedExitCodes | Where-Object { $_ -ne 0 } | Sort-Object -Unique)
@@ -338,10 +353,11 @@ function New-IcpReportModel {
     elseif ($Ocultos -gt 0) { $ambComp += "; máscara: ligada, $Ocultos trechos ocultados" }
 
     $cmds = [System.Collections.Generic.List[object]]::new()
-    $okCount = 0; $failCount = 0; $naoExecCount = 0
+    $okCount = 0; $failCount = 0; $naoExecCount = 0; $interrompidoCount = 0
     foreach ($r in @($Registros)) {
         if ($r.Status -eq 'OK') { $okCount++ }
         elseif ($r.Status -eq 'FALHOU') { $failCount++ }
+        elseif ($r.Status -eq 'INTERROMPIDO') { $interrompidoCount++ }
         else { $naoExecCount++ }
 
         $entResumo = ($r.Comando -replace '\s+', ' ').Trim()
@@ -362,7 +378,7 @@ function New-IcpReportModel {
         }
 
         $erroResumo = @()
-        if ($r.Status -eq 'FALHOU' -and $naoVazias.Count -gt 0) {
+        if ($r.Status -in 'FALHOU', 'INTERROMPIDO' -and $naoVazias.Count -gt 0) {
             $soErro = @($naoVazias | Where-Object { $_.StartsWith('[ERRO] ') })
             $fonteErro = if ($soErro.Count -gt 0) { $soErro | Select-Object -First 5 } else { $naoVazias | Select-Object -Last 5 }
             $erroResumo = @($fonteErro | ForEach-Object {
@@ -371,14 +387,21 @@ function New-IcpReportModel {
         }
 
         $spLimpo = @($r.SegundoPlano | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $filhoLimpo = @($r.Filho | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $rotuloVal = if (-not [string]::IsNullOrWhiteSpace($r.Rotulo)) { [string]$r.Rotulo } else { $null }
+        $semSaidaVal = if ($null -ne $r.SemSaidaS) { [int]$r.SemSaidaS } else { $null }
         $cmds.Add([pscustomobject]@{
             n              = [int]$r.N
             status         = [string]$r.Status
+            rotulo         = $rotuloVal
+            interativo     = [bool]$r.Interativo
             ms             = if ($r.Status -eq 'NAO_EXECUTADO') { $null } else { [int]$r.Ms }
             exit           = $r.Exit
             exit_permitido = [bool]$r.ExitPermitido
             silenciosos    = [int]$r.Silenciosos
             segundo_plano  = [string[]]$spLimpo
+            filho          = [string[]]$filhoLimpo
+            sem_saida_s    = $semSaidaVal
             entrada        = [string]$r.Comando
             entrada_resumo = $entResumo
             atribuicao     = $r.Atribuicao
@@ -391,8 +414,18 @@ function New-IcpReportModel {
     }
 
     $total = $cmds.Count
-    $execCount = $okCount + $failCount
+    $execCount = $okCount + $failCount + $interrompidoCount
     $flagsLimpos = [string[]]@($Flags | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $resumoObj = [ordered]@{
+        total          = $total
+        executados     = $execCount
+        ok             = $okCount
+        falharam       = $failCount
+        nao_executados = $naoExecCount
+    }
+    if ($interrompidoCount -gt 0) {
+        $resumoObj['interrompidos'] = $interrompidoCount
+    }
 
     return [pscustomobject]@{
         versao        = 2
@@ -413,13 +446,7 @@ function New-IcpReportModel {
             compact_text  = $ambComp
             full_lines    = $ambFull
         }
-        resumo        = [ordered]@{
-            total          = $total
-            executados     = $execCount
-            ok             = $okCount
-            falharam       = $failCount
-            nao_executados = $naoExecCount
-        }
+        resumo        = $resumoObj
         comandos      = @($cmds)
         arquivo       = $null
     }
@@ -433,11 +460,15 @@ function Limit-IcpReportModelOutput {
         [pscustomobject]@{
             n              = $c.n
             status         = $c.status
+            rotulo         = $c.rotulo
+            interativo     = $c.interativo
             ms             = $c.ms
             exit           = $c.exit
             exit_permitido = $c.exit_permitido
             silenciosos    = $c.silenciosos
             segundo_plano  = $c.segundo_plano
+            filho          = $c.filho
+            sem_saida_s    = $c.sem_saida_s
             entrada        = $c.entrada
             entrada_resumo = $c.entrada_resumo
             atribuicao     = $c.atribuicao
@@ -492,13 +523,15 @@ function Invoke-IcpReportFormatter {
     # Despacha o modelo v2 para o formatador escolhido.
     param(
         $Model,
-        [ValidateSet('xml', 'json', 'markdown')][string]$Format = 'xml',
+        [ValidateSet('xml', 'json', 'markdown', 'yaml', 'toml')][string]$Format = 'xml',
         [switch]$Summary,
         [switch]$CompressJson
     )
     switch ($Format) {
         'json'     { Format-IcpReportJson -Model $Model -Summary:$Summary -Compress:$CompressJson }
         'markdown' { Format-IcpReportMarkdown -Model $Model -Summary:$Summary }
+        'yaml'     { Format-IcpReportYaml -Model $Model -Summary:$Summary }
+        'toml'     { Format-IcpReportToml -Model $Model -Summary:$Summary }
         default    { Format-IcpReportXml -Model $Model -Summary:$Summary }
     }
 }
@@ -551,11 +584,94 @@ function Copy-IcpReportModelClone {
     }
 }
 
+function Format-IcpMinimalStructuredReport {
+    # Gera relatório mínimo válido estrito quando o teto de disco impede listar comandos completos em JSON/YAML/TOML.
+    param(
+        $Model,
+        [ValidateSet('json', 'yaml', 'toml')][string]$Format,
+        [switch]$Summary,
+        [int]$Omitidos,
+        [int]$MaxFileChars
+    )
+    $res = $Model.resumo
+    $resStr = [string]$Model.resultado
+    for ($pass = 0; $pass -lt 2; $pass++) {
+        if ($Format -eq 'json') {
+            $minDoc = [ordered]@{
+                versao            = $Model.versao
+                versao_icp        = $Model.versao_icp
+                formato           = 'json'
+                resultado         = $resStr
+                ms_total          = $Model.ms_total
+                truncado_teto     = $true
+                comandos_omitidos = $Omitidos
+                resumo            = $res
+                comandos          = @()
+            }
+            if ($Summary) { $minDoc['completo'] = 'arquivo' }
+            $txt = ((ConvertTo-Json -InputObject $minDoc -Depth 10 -Compress) -replace '\r?\n', "`r`n")
+        }
+        elseif ($Format -eq 'yaml') {
+            $yl = [System.Collections.Generic.List[string]]::new()
+            $yl.Add("versao: $($Model.versao)")
+            $yl.Add("versao_icp: $(Format-IcpYamlScalar -Value $Model.versao_icp)")
+            $yl.Add('formato: "yaml"')
+            $yl.Add("resultado: $(Format-IcpYamlScalar -Value $resStr)")
+            $yl.Add("ms_total: $($Model.ms_total)")
+            if ($Summary) { $yl.Add('completo: "arquivo"') }
+            $yl.Add('truncado_teto: true')
+            $yl.Add("comandos_omitidos: $Omitidos")
+            $yl.Add('resumo:')
+            $yl.Add("  total: $($res.total)")
+            $yl.Add("  executados: $($res.executados)")
+            $yl.Add("  ok: $($res.ok)")
+            $yl.Add("  falharam: $($res.falharam)")
+            $yl.Add("  nao_executados: $($res.nao_executados)")
+            if ($res.Contains('interrompidos') -and $res.interrompidos -gt 0) {
+                $yl.Add("  interrompidos: $($res.interrompidos)")
+            }
+            $yl.Add('comandos: []')
+            $txt = ($yl -join "`r`n")
+        }
+        else {
+            $tl = [System.Collections.Generic.List[string]]::new()
+            $tl.Add("versao = $($Model.versao)")
+            $tl.Add("versao_icp = $(Format-IcpTomlString -Value $Model.versao_icp)")
+            $tl.Add('formato = "toml"')
+            $tl.Add("resultado = $(Format-IcpTomlString -Value $resStr)")
+            $tl.Add("ms_total = $($Model.ms_total)")
+            if ($Summary) { $tl.Add('completo = "arquivo"') }
+            $tl.Add('truncado_teto = true')
+            $tl.Add("comandos_omitidos = $Omitidos")
+            $tl.Add('comandos = []')
+            $tl.Add('')
+            $tl.Add('[resumo]')
+            $tl.Add("total = $($res.total)")
+            $tl.Add("executados = $($res.executados)")
+            $tl.Add("ok = $($res.ok)")
+            $tl.Add("falharam = $($res.falharam)")
+            $tl.Add("nao_executados = $($res.nao_executados)")
+            if ($res.Contains('interrompidos') -and $res.interrompidos -gt 0) {
+                $tl.Add("interrompidos = $($res.interrompidos)")
+            }
+            $txt = ($tl -join "`r`n")
+        }
+
+        if ($txt.Length -le $MaxFileChars -or $resStr.Length -le 8) {
+            return $txt
+        }
+        $excesso = $txt.Length - $MaxFileChars
+        $novoTam = [Math]::Max(3, $resStr.Length - $excesso - 1)
+        $resStr = $resStr.Substring(0, $novoTam) + '…'
+    }
+    return $txt
+}
+
 function Format-IcpReportText {
     # Serializa o modelo v2 no formato escolhido, aplicando redução/teto estrito em -MaxFileChars.
     param(
         $Model,
-        [ValidateSet('xml', 'json', 'markdown')][string]$Format = 'xml',
+        [ValidateSet('xml', 'json', 'markdown', 'yaml', 'toml')][string]$Format = 'xml',
         [switch]$Summary,
         [int]$MaxFileChars = 0
     )
@@ -566,15 +682,15 @@ function Format-IcpReportText {
         $reduzido = Limit-IcpReportModelOutput -Model $Model -MaxChars $MaxFileChars
         $texto = Invoke-IcpReportFormatter -Model $reduzido -Format $Format -Summary:$Summary
         if ($texto.Length -gt $MaxFileChars) {
-            if ($Format -eq 'json') {
+            if ($Format -in 'json', 'yaml', 'toml') {
                 foreach ($c in $reduzido.comandos) {
                     if ($c.saida.Count -gt 1 -or ($c.saida.Count -eq 1 -and $c.saida[0].Length -gt 64)) {
                         $c.saida = @('[teto de disco do icp atingido]')
                     }
                     if ($c.entrada.Length -gt 120) { $c.entrada = $c.entrada_resumo }
                 }
-                $texto = Invoke-IcpReportFormatter -Model $reduzido -Format 'json' -Summary:$Summary
-                if ($texto.Length -gt $MaxFileChars) {
+                $texto = Invoke-IcpReportFormatter -Model $reduzido -Format $Format -Summary:$Summary
+                if ($Format -eq 'json' -and $texto.Length -gt $MaxFileChars) {
                     $texto = Invoke-IcpReportFormatter -Model $reduzido -Format 'json' -Summary:$Summary -CompressJson
                 }
                 if ($texto.Length -gt $MaxFileChars) {
@@ -586,11 +702,12 @@ function Format-IcpReportText {
                     $bestTxt = $null
                     $low = 0
                     $high = $todos.Count
+                    $useCompress = ($Format -eq 'json')
                     while ($low -le $high) {
                         $mid = [int][Math]::Floor(($low + $high) / 2)
                         $slice = if ($mid -gt 0) { @($todos[0..($mid - 1)]) } else { @() }
                         $cand = Copy-IcpReportModelClone -Model $reduzido -Comandos $slice -TruncadoTeto $true -ComandosOmitidos ($todos.Count - $mid)
-                        $candTxt = Invoke-IcpReportFormatter -Model $cand -Format 'json' -Summary:$Summary -CompressJson
+                        $candTxt = Invoke-IcpReportFormatter -Model $cand -Format $Format -Summary:$Summary -CompressJson:$useCompress
                         if ($candTxt.Length -le $MaxFileChars) {
                             $bestTxt = $candTxt
                             $low = $mid + 1
@@ -603,25 +720,7 @@ function Format-IcpReportText {
                         $texto = $bestTxt
                     }
                     else {
-                        $minDoc = [ordered]@{
-                            versao            = $Model.versao
-                            versao_icp        = $Model.versao_icp
-                            formato           = 'json'
-                            resultado         = $Model.resultado
-                            ms_total          = $Model.ms_total
-                            truncado_teto     = $true
-                            comandos_omitidos = $todos.Count
-                            resumo            = $Model.resumo
-                            comandos          = @()
-                        }
-                        if ($Summary) { $minDoc['completo'] = 'arquivo' }
-                        $texto = ((ConvertTo-Json -InputObject $minDoc -Depth 10 -Compress) -replace '\r?\n', "`r`n")
-                        if ($texto.Length -gt $MaxFileChars -and $minDoc.resultado.Length -gt 8) {
-                            $excesso = $texto.Length - $MaxFileChars
-                            $novoTam = [Math]::Max(3, $minDoc.resultado.Length - $excesso - 1)
-                            $minDoc.resultado = $minDoc.resultado.Substring(0, $novoTam) + '…'
-                            $texto = ((ConvertTo-Json -InputObject $minDoc -Depth 10 -Compress) -replace '\r?\n', "`r`n")
-                        }
+                        $texto = Format-IcpMinimalStructuredReport -Model $Model -Format $Format -Summary:$Summary -Omitidos $todos.Count -MaxFileChars $MaxFileChars
                     }
                 }
             }
@@ -680,6 +779,9 @@ function Get-IcpSummaryAvisoText {
     $arq = $Model.arquivo
     $res = $Model.resumo
     $det = "$($arq.chars) chars, $($arq.bytes) bytes, formato=$($arq.formato); $($res.ok) OK, $($res.falharam) falharam, $($res.nao_executados) não executados"
+    if ($res.Contains('interrompidos') -and $res.interrompidos -gt 0) {
+        $det += ", $($res.interrompidos) interrompidos"
+    }
     if ($arq.truncado_teto) { $det += '; truncado no teto de disco' }
     if ($Model.explain) {
         return "O relatório completo ($det) foi gravado em arquivo. Operador: anexe o arquivo abaixo para a IA. IA: peça o anexo se ele não veio."
@@ -695,7 +797,7 @@ function Get-IcpLogDirectory {
 }
 
 function Clear-IcpOldLog {
-    # Remove apenas relatórios antigos (icp-*.txt|json|md) com mais de Days dias em Directory.
+    # Remove apenas relatórios antigos (icp-*.txt|json|md|yaml|toml) com mais de Days dias em Directory.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Limpeza automática de retenção em pasta temporária de logs do icp.')]
     param([string]$Directory, [int]$Days = 7)
@@ -703,7 +805,7 @@ function Clear-IcpOldLog {
     try {
         $corte = (Get-Date).AddDays(-$Days)
         Get-ChildItem -LiteralPath $Directory -File -ErrorAction Ignore |
-            Where-Object { $_.Name -match '(?i)^icp-.+\.(txt|json|md)$' -and $_.LastWriteTime -lt $corte } |
+            Where-Object { $_.Name -match '(?i)^icp-.+\.(txt|json|md|yaml|toml)$' -and $_.LastWriteTime -lt $corte } |
             Remove-Item -Force -ErrorAction Ignore
     }
     catch { $null = $_ }
@@ -716,11 +818,13 @@ function Write-IcpLogFileExclusive {
     param(
         [Parameter(Mandatory)][string]$Directory,
         [Parameter(Mandatory)][string]$Content,
-        [ValidateSet('xml', 'json', 'markdown')][string]$Format = 'xml'
+        [ValidateSet('xml', 'json', 'markdown', 'yaml', 'toml')][string]$Format = 'xml'
     )
     $ext = switch ($Format) {
         'json'     { '.json' }
         'markdown' { '.md' }
+        'yaml'     { '.yaml' }
+        'toml'     { '.toml' }
         default    { '.txt' }
     }
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -762,8 +866,8 @@ function Write-IcpLogFileExclusive {
 }
 
 function Get-IcpLogCount {
-    # Conta relatórios icp-*.{txt,json,md} existentes em icp-logs sem criar diretório.
+    # Conta relatórios icp-*.{txt,json,md,yaml,toml} existentes em icp-logs sem criar diretório.
     $dir = Get-IcpLogDirectory
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return 0 }
-    return @(Get-ChildItem -LiteralPath $dir -File -ErrorAction Ignore | Where-Object { $_.Name -match '(?i)^icp-.+\.(txt|json|md)$' }).Count
+    return @(Get-ChildItem -LiteralPath $dir -File -ErrorAction Ignore | Where-Object { $_.Name -match '(?i)^icp-.+\.(txt|json|md|yaml|toml)$' }).Count
 }

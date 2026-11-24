@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="PowerShell 7.2+" src="https://img.shields.io/badge/PowerShell-7.2%2B-458588?logo=powershell&logoColor=FBF1C7&labelColor=282828">
   <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11-83A598?labelColor=282828">
-  <img alt="Versão 1.0.0" src="https://img.shields.io/badge/vers%C3%A3o-1.0.0-FABD2F?labelColor=282828">
+  <img alt="Versão 1.1.0" src="https://img.shields.io/badge/vers%C3%A3o-1.1.0-FABD2F?labelColor=282828">
   <img alt="Licença MIT" src="https://img.shields.io/badge/licen%C3%A7a-MIT-B8BB26?labelColor=282828">
   <a href="https://github.com/defNickTCys/AgentTools/actions/workflows/ci.yml"><img alt="CI: Validate PowerShell Module" src="https://github.com/defNickTCys/AgentTools/actions/workflows/ci.yml/badge.svg"></a>
 </p>
@@ -26,7 +26,7 @@ O módulo é macro: um núcleo compartilhado e ferramentas independentes.
 
 | Ferramenta | Comando | O que faz | Documentação |
 |---|---|---|---|
-| `icp` | `icp { ... }` | Executa cada comando de um bloco uma vez, em sequência e em escopo isolado, para na primeira falha e gera um relatório estruturado `versao="2"` em XML, JSON ou Markdown. | [Guia do `icp`](Tools/icp/README.md) · [Contrato do relatório](Tools/icp/Contracts/REPORT_CONTRACT.md) · [Skill para agentes](skills/icp/SKILL.md) |
+| `icp` | `icp { ... }` | Executa cada comando de um bloco uma vez, em sequência e em escopo isolado, para na primeira falha e gera um relatório estruturado `versao="2"` em XML, JSON, Markdown, YAML ou TOML. | [Guia do `icp`](Tools/icp/README.md) · [Contrato do relatório](Tools/icp/Contracts/REPORT_CONTRACT.md) · [Skill para agentes](skills/icp/SKILL.md) |
 
 ## Requisitos
 
@@ -70,7 +70,7 @@ A referência completa de parâmetros, variáveis de ambiente e exemplos está n
 
 ## Skills para agentes de IA
 
-O repositório inclui a skill oficial do `icp` no padrão aberto *Agent Skills* em [skills/icp/SKILL.md](skills/icp/SKILL.md), alinhada ao contrato `versao="2"` e aos parâmetros da `1.0.0`.
+O repositório inclui a skill oficial do `icp` no padrão aberto *Agent Skills* em [skills/icp/SKILL.md](skills/icp/SKILL.md), alinhada ao contrato `versao="2"` e aos parâmetros da `1.1.0`.
 
 Ela pode ser instalada com `npx skills add defNickTCys/AgentTools` ou vinculada diretamente a partir do diretório `skills/icp` do seu clone local.
 

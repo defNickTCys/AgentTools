@@ -34,7 +34,8 @@
     Write-Host "  $(Format-IcpCor '•' 'PetroleoClaro') Recolhe o bloco da tela ao executar em modo interativo (use $(Format-IcpCor '-KeepBlock' 'Creme') para manter)."
     Write-Host "  $(Format-IcpCor '•' 'PetroleoClaro') Chamar $(Format-IcpCor 'icp' 'Ambar') sem argumentos abre o cartão + compositor interativo linha a linha."
     Write-Host "  $(Format-IcpCor '•' 'PetroleoClaro') Pré-voo (AST): bloqueia '\', begin/process/clean/dynamicparam, break/continue e VAR=val; aninhamento é bloqueado."
-    Write-Host "  $(Format-IcpCor '•' 'PetroleoClaro') Tela preserva cores nativas; contrato $(Format-IcpCor 'versao="2"' 'Creme') em $(Format-IcpCor 'REPORT_CONTRACT.md' 'PetroleoClaro') suporta $(Format-IcpCor '-Format xml|json|markdown' 'Creme')."
+    Write-Host "  $(Format-IcpCor '•' 'PetroleoClaro') Tela preserva cores nativas; contrato $(Format-IcpCor 'versao="2"' 'Creme') em $(Format-IcpCor 'REPORT_CONTRACT.md' 'PetroleoClaro') suporta $(Format-IcpCor '-Format xml|json|markdown|yaml|toml' 'Creme')."
+    Write-Host "  $(Format-IcpCor '•' 'PetroleoClaro') Rótulos $(Format-IcpCor '#* descrição' 'Creme') nomeiam passos na barra/$(Format-IcpCor '-Step' 'Creme'); $(Format-IcpCor '-Interactive' 'Creme') ou $(Format-IcpCor '#* interactive' 'Creme') liberam UI/prompts."
 
     Write-Host ''
     Write-Host (Format-IcpCor '▸ GALERIA VISUAL DOS ESTADOS' 'Ambar' -Negrito)
@@ -88,7 +89,7 @@
     Write-Host ''
     Write-Host (Format-IcpCor '▸ COMPOSITOR INTERATIVO (icp sem argumentos)' 'Ambar' -Negrito)
     Write-Host "  $(Format-IcpCor ':list' 'PetroleoClaro') lista linhas coloridas   $(Format-IcpCor ':del [N]' 'PetroleoClaro') remove última/N   $(Format-IcpCor ':edit N txt' 'PetroleoClaro') valida e edita"
-    Write-Host "  $(Format-IcpCor ':clear' 'PetroleoClaro') limpa rascunho            $(Format-IcpCor ':explain' 'PetroleoClaro') alterna -Explain $(Format-IcpCor ':step' 'PetroleoClaro') alterna -Step $(Format-IcpCor ':cancel' 'PetroleoClaro') sai"
+    Write-Host "  $(Format-IcpCor ':clear' 'PetroleoClaro') limpa rascunho            $(Format-IcpCor ':explain' 'PetroleoClaro') alterna -Explain $(Format-IcpCor ':step' 'PetroleoClaro') -Step $(Format-IcpCor ':interactive' 'PetroleoClaro') -Interactive $(Format-IcpCor ':cancel' 'PetroleoClaro') sai"
     Write-Host '  Realce de sintaxe do PSReadLine; linhas com pré-voo/erro definitivo são rejeitadas na hora.'
 
     Write-Host ''
@@ -96,11 +97,13 @@
     Write-Host "  $(Format-IcpCor 'AGENTTOOLS_ICP_THEME' 'PetroleoClaro')          gruvbox (padrão; OK/Falha herdados), terminal (100% ANSI), gruvbox-puro"
     Write-Host "  $(Format-IcpCor 'AGENTTOOLS_ICP_COLORS' 'PetroleoClaro')         overrides 'ok=#23d18b;erro=red;borda=cyan' | NO_COLOR desliga tudo"
     Write-Host "  $(Format-IcpCor 'AGENTTOOLS_ICP_NOFORCECOLOR' 'PetroleoClaro')   1 desativa injeção de cor forçada em comandos nativos"
+    Write-Host "  $(Format-IcpCor 'AGENTTOOLS_ICP_FORMAT' 'PetroleoClaro')         formato padrão do relatório: xml, json, markdown, yaml ou toml"
+    Write-Host "  $(Format-IcpCor 'AGENTTOOLS_ICP_COMMENT_LABELS' 'PetroleoClaro') 1 habilita '# descrição' como fallback de rótulo além de '#* descrição'"
 
     Write-Host ''
     Write-Host (Format-IcpCor '▸ PARÂMETROS' 'Ambar' -Negrito)
     Write-Host (Format-IcpCor '  Relatório, Formato & Tokens:' 'Oliva')
-    Write-Host '    -Format <xml|json|markdown> Formato do relatório v2 (padrão: xml compacto)'
+    Write-Host '    -Format <formato>           Formato v2: xml (padrão), json, markdown, yaml ou toml'
     Write-Host '    -Explain                    Inclui legenda, aviso e ambiente completos'
     Write-Host '    -Raw                        Sem deduplicação (3+) nem corte de linhas/largura'
     Write-Host '    -MaxLinesPerCommand <N>     Limite de linhas/comando (padrão: 150, mín: 10)'
@@ -108,6 +111,7 @@
     Write-Host '    -RedirectTailLines <N>      Linhas finais de >, >>, 2> (padrão: 5; 0 desliga)'
     Write-Host (Format-IcpCor '  Execução, Tela & Pré-voo:' 'Oliva')
     Write-Host '    -Step                       Pausa após cada comando ([Enter/S] seguir, [A] restantes, [C] parar)'
+    Write-Host '    -Interactive                Passthrough de console/UI (ou use ''#* interactive'' por comando)'
     Write-Host '    -ContinueOnError            Roda todos mesmo com falha (só leitura)'
     Write-Host '    -AllowedExitCodes <int[]>   Códigos de saída não-zero aceitos como OK (mantém exit e exit_permitido)'
     Write-Host '    -AllowTrailingBackslash     Libera apenas ''\'' isolado no fim de comando'
@@ -148,6 +152,8 @@
         @{ Cmd = 'icp -Explain { git status --short; git --no-pager log --oneline -3 }'; Nota = '' }
         @{ Cmd = 'icp -KeepBlock -ContinueOnError { Get-ChildItem; git status }'; Nota = '' }
         @{ Cmd = 'icp -CommandTimeoutSeconds 30 { npm test }'; Nota = '' }
+        @{ Cmd = 'icp -Format yaml { git status --short }'; Nota = '' }
+        @{ Cmd = 'icp -Interactive { Read-Host "Confirmar?" }'; Nota = '' }
         @{ Cmd = 'icp -Help -Full'; Nota = '# referência completa colorida na TUI' }
         @{ Cmd = 'icp -Help -Demo'; Nota = '# simulação animada da barra' }
     )
@@ -171,14 +177,15 @@
         Write-Host "  $bL$(Format-IcpCor 'Nenhum objeto via pipeline.' 'Creme') $(Format-IcpCor 'Use o parâmetro posicional 0 [scriptblock] (-ScriptBlock { ... }) ou chame sem argumentos.' 'Neutro')"
         Write-Host "  $(Format-IcpCor '├─' 'Pedra') $(Format-IcpCor 'Saídas' 'PetroleoClaro' -Negrito)"
         Write-Host "  $bL$(Format-IcpCor 'Nenhum objeto retornado ao pipeline.' 'Creme') $(Format-IcpCor 'Exibe saída visual com cores nativas na tela e envia relatório v2 (XML/JSON/MD) à área de transferência ou -OutFile.' 'Neutro')"
-        Write-Host "  $(Format-IcpCor '╰─' 'Petroleo') $(Format-IcpCor 'Variáveis: AGENTTOOLS_ICP_THEME, AGENTTOOLS_ICP_COLORS, AGENTTOOLS_ICP_NOFORCECOLOR, NO_COLOR e AGENTTOOLS_ICP_LOGDIR.' 'Neutro')"
+        Write-Host "  $(Format-IcpCor '╰─' 'Petroleo') $(Format-IcpCor 'Variáveis: AGENTTOOLS_ICP_THEME, AGENTTOOLS_ICP_COLORS, AGENTTOOLS_ICP_NOFORCECOLOR, AGENTTOOLS_ICP_FORMAT, AGENTTOOLS_ICP_COMMENT_LABELS, NO_COLOR e AGENTTOOLS_ICP_LOGDIR.' 'Neutro')"
 
         Write-Host ''
         Write-Host (Format-IcpCor '▸ REFERÊNCIA DETALHADA DOS PARÂMETROS' 'Ambar' -Negrito)
         $detParams = @(
             @{ Nome = '-ScriptBlock'; Tipo = '[scriptblock] · posição 0 (-Exec)'; Desc = 'Bloco { ... } com os comandos em sequência. Sem ele em terminal interativo, abre o compositor.' }
-            @{ Nome = '-Format'; Tipo = '[string] · padrão: xml'; Desc = 'Formato do relatório v2: xml (estilo compacto LLM), json (estrito parseável) ou markdown (cercas dinâmicas).' }
-            @{ Nome = '-Step'; Tipo = '[switch] · padrão: off'; Desc = 'Pausa após cada comando exibido em modo interativo, mostrando o próximo comando e pedindo Enter/S, A ou C.' }
+            @{ Nome = '-Format'; Tipo = '[string] · padrão: xml / AGENTTOOLS_ICP_FORMAT'; Desc = 'Formato do relatório v2: xml (estilo compacto LLM), json (estrito), markdown, yaml (YAML 1.2) ou toml (TOML 1.0).' }
+            @{ Nome = '-Step'; Tipo = '[switch] · padrão: off'; Desc = 'Pausa após cada comando exibido em modo interativo, mostrando o próximo comando (ou rótulo #*) e pedindo Enter/S, A ou C.' }
+            @{ Nome = '-Interactive'; Tipo = '[switch] · padrão: off'; Desc = 'Passthrough de console/UI para comandos com diálogos Windows ou prompts interativos (ou use #* interactive por comando).' }
             @{ Nome = '-Explain'; Tipo = '[switch] · padrão: off'; Desc = 'Inclui legenda, aviso completo e ambiente detalhado (até 6 linhas) para o 1º envio a uma IA.' }
             @{ Nome = '-Raw'; Tipo = '[switch] · padrão: off'; Desc = 'Desliga deduplicação (3+) e cortes de linhas/largura. Não desliga [ERRO], máscara nem gravação em arquivo.' }
             @{ Nome = '-MaxLinesPerCommand'; Tipo = '[int] · padrão: 150 (mín: 10)'; Desc = 'Acima do limite, mantém os 2/3 iniciais e o 1/5 final da saída de cada comando.' }
@@ -212,6 +219,8 @@
             @{ Tit = 'Relatório JSON estrito para scripts/agentes'; Cmd = 'icp -Format json -OutFile .\relatorio.json { dotnet test }'; Desc = 'Salva relatório v2 parseável por máquina direto em disco sem tocar na área de transferência.' }
             @{ Tit = 'Primeiro envio para IA sem histórico do protocolo'; Cmd = 'icp -Explain { git status --short; git --no-pager log --oneline -3 }'; Desc = 'Envia legenda, aviso completo e ambiente detalhado no relatório compacto.' }
             @{ Tit = 'Inspeção mantendo o bloco e tolerando falhas'; Cmd = 'icp -KeepBlock -ContinueOnError { Get-ChildItem; git status }'; Desc = 'Mantém o comando na tela (cores PSStyle preservadas) e roda todos os itens até o fim.' }
+            @{ Tit = 'Rótulos #* na barra e relatório em YAML'; Cmd = 'icp -Format yaml { #* Checando branch; git branch --show-current }'; Desc = 'Exibe "Checando branch" na barra ao vivo preservando o comando literal em entrada e serializa em YAML 1.2.' }
+            @{ Tit = 'Passthrough interativo para UI/prompts Windows'; Cmd = 'icp -Interactive { Read-Host "Digite algo" }'; Desc = 'Executa sem captura bloqueante permitindo diálogos e prompts reais no console, registrando interativo="true".' }
             @{ Tit = 'Referência visual completa e demonstração da barra'; Cmd = 'icp -Help -Full; icp -Help -Demo'; Desc = 'Exibe este guia estendido e a animação DEC Mode 2026 sem alterar a área de transferência.' }
         )
         for ($ei = 0; $ei -lt $exDet.Count; $ei++) {

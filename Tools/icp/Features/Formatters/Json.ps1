@@ -26,22 +26,26 @@
             n      = $c.n
             status = $c.status
         }
+        if (-not [string]::IsNullOrWhiteSpace($c.rotulo)) { $item['rotulo'] = $c.rotulo }
         if ($c.status -eq 'NAO_EXECUTADO') {
             $item['entrada'] = if ($Summary) { $c.entrada_resumo } else { $c.entrada }
             $cmdsOut.Add($item)
             continue
         }
+        if ($c.interativo) { $item['interativo'] = $true }
         $item['ms'] = $c.ms
         if ($null -ne $c.exit) { $item['exit'] = $c.exit }
         if ($c.exit_permitido) { $item['exit_permitido'] = $true }
         if ($c.silenciosos -gt 0) { $item['silenciosos'] = $c.silenciosos }
         if ($c.segundo_plano.Count -gt 0) { $item['segundo_plano'] = [string[]]@($c.segundo_plano) }
+        if ($null -ne $c.filho -and $c.filho.Count -gt 0) { $item['filho'] = [string[]]@($c.filho) }
+        if ($null -ne $c.sem_saida_s) { $item['sem_saida_s'] = [int]$c.sem_saida_s }
 
         if ($Summary) {
             $item['linhas'] = $c.linhas
             $item['chars'] = $c.chars
             $item['entrada'] = $c.entrada_resumo
-            if ($c.status -eq 'FALHOU' -and $c.erro_resumo.Count -gt 0) {
+            if ($c.status -in 'FALHOU', 'INTERROMPIDO' -and $c.erro_resumo.Count -gt 0) {
                 $erroList = [System.Collections.Generic.List[string]]::new()
                 foreach ($er in @($c.erro_resumo)) { $erroList.Add([string]$er) }
                 $item['erro'] = $erroList.ToArray()

@@ -1,13 +1,13 @@
 ﻿function Get-IcpStatusBarType {
     # Retorna o tipo .NET versionado IcpStatusBar carregado para a versão atual do módulo.
-    $ns = if ($script:AgentToolsTypeNamespace) { $script:AgentToolsTypeNamespace } else { 'AgentTools.V0_9_5' }
+    $ns = if ($script:AgentToolsTypeNamespace) { $script:AgentToolsTypeNamespace } else { 'AgentTools.V1_1_0' }
     return ("$ns.IcpStatusBar" -as [type])
 }
 
 function Initialize-IcpStatusBar {
     # Compila helper C# versionado para barra de status DEC 2026, ligado via delegates ao ProcessTree.
     if (-not (Initialize-AgentToolsProcessTree)) { return $false }
-    $ns = if ($script:AgentToolsTypeNamespace) { $script:AgentToolsTypeNamespace } else { 'AgentTools.V0_9_5' }
+    $ns = if ($script:AgentToolsTypeNamespace) { $script:AgentToolsTypeNamespace } else { 'AgentTools.V1_1_0' }
     if ($null -eq (Get-IcpStatusBarType)) {
         $src = @"
 using System;
@@ -319,6 +319,8 @@ namespace $ns {
         private int _frame;
         private long _lastChildCheckMs;
         private string[] _activeChildren = Array.Empty<string>();
+        private string[] _lastActiveChildrenWithPid = Array.Empty<string>();
+        private double _lastIdleSec = 0.0;
         private bool _active;
         private bool _drawn;
         private bool _cursorWasVisible = true;
@@ -329,6 +331,8 @@ namespace $ns {
         public bool IsDisposed { get; private set; }
         public string KilledSummary { get; private set; } = string.Empty;
         public string[] RemainingChildren { get; private set; } = Array.Empty<string>();
+        public string[] LastActiveChildren { get { lock (_lock) { return (string[])_lastActiveChildrenWithPid.Clone(); } } }
+        public double LastIdleSeconds { get { lock (_lock) { return _active ? (_lastOutputSw.ElapsedMilliseconds / 1000.0) : _lastIdleSec; } } }
         public int ErrorCount { get { lock (_lock) { return _errorCount; } } }
         public int SilentErrorCount { get { lock (_lock) { return _silentErrorCount; } } }
 
@@ -362,8 +366,10 @@ namespace $ns {
                 _silentErrorCount = 0;
                 _stderrCount = 0;
                 _frame = 0;
-                _lastChildCheckMs = 0;
+                _lastChildCheckMs = -650;
                 _activeChildren = Array.Empty<string>();
+                _lastActiveChildrenWithPid = Array.Empty<string>();
+                _lastIdleSec = 0.0;
                 _drawn = false;
                 _cursorWasVisible = true;
                 _cursorHiddenByBar = false;
@@ -404,6 +410,9 @@ namespace $ns {
                 if (_needsChildTracking && (elapsedMs - _lastChildCheckMs >= 900 || (_timeoutMs > 0 && elapsedMs >= _timeoutMs))) {
                     _lastChildCheckMs = elapsedMs;
                     var rawNew = GetNewChildren(_rootPid, _baselinePids);
+                    if (rawNew.Length > 0) {
+                        _lastActiveChildrenWithPid = rawNew;
+                    }
                     var activeList = new List<string>(rawNew.Length);
                     foreach (var item in rawNew) {
                         int hashIdx = item.LastIndexOf('#');
@@ -470,7 +479,11 @@ namespace $ns {
                 }
                 if (_needsChildTracking) {
                     RemainingChildren = GetNewChildren(_rootPid, _baselinePids);
+                    if (RemainingChildren.Length > 0) {
+                        _lastActiveChildrenWithPid = RemainingChildren;
+                    }
                 }
+                _lastIdleSec = _lastOutputSw.ElapsedMilliseconds / 1000.0;
             }
         }
 
