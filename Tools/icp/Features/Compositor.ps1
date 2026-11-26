@@ -310,12 +310,9 @@ function Show-IcpInicioCartao {
         Justification = 'Exibe o cartão de abertura do compositor interativo no terminal.')]
     param([int]$WindowWidth = 120)
     $ver = if ($script:AgentToolsVersion) { $script:AgentToolsVersion } else { '1.1.0' }
-    $dir = (Get-Location).Path
-    $git = ''
-    if ((Get-Location).Provider.Name -eq 'FileSystem' -and (Get-Command git -CommandType Application -ErrorAction Ignore)) {
-        $branch = & git -C $dir rev-parse --abbrev-ref HEAD 2>$null
-        if ($LASTEXITCODE -eq 0 -and $branch) { $git = $branch }
-    }
+    $loc = Get-Location
+    $dir = $loc.Path
+    $git = Get-IcpGitBranch -Location $loc
     $logsCount = Get-IcpLogCount
     $w = if ($WindowWidth -lt 40) { 120 } else { $WindowWidth }
     $linhas = @(
