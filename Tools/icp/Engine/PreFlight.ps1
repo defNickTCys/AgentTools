@@ -86,9 +86,13 @@ function Get-IcpStatementMeta {
         $starRotulo = $null
         $plainRotulo = $null
         $interativo = $false
+        $keepOutput = $false
         for ($k = $linhasCom.Count - 1; $k -ge 0; $k--) {
             $txt = $linhasCom[$k]
-            if ($txt -match '^#\*\s*interactive\s*$') {
+            if ($txt -match '^#\*\s*keep-output\s*$') {
+                $keepOutput = $true
+            }
+            elseif ($txt -match '^#\*\s*interactive\s*$') {
                 $interativo = $true
             }
             elseif ($txt -match '^#\*\s*interactive\s*[:\-]\s*(.+?)\s*$') {
@@ -122,6 +126,7 @@ function Get-IcpStatementMeta {
         $metas.Add([pscustomobject]@{
             Rotulo     = $rotuloFinal
             Interativo = [bool]$interativo
+            KeepOutput = [bool]$keepOutput
         })
     }
     return $metas.ToArray()

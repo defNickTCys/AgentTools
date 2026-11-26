@@ -161,6 +161,9 @@ function Complete-IcpReportDelivery {
             }
             $serSum = Format-IcpReportText -Model $model -Format $Eng.Formato -Summary
             $clip = $serSum.Text
+            if ($Eng.Formato -eq 'xml' -and $Eng.MaxClip -ge 1000) {
+                $clip = Format-IcpBudgetSummaryXml -Model $model -MaxChars $Eng.MaxClip
+            }
         }
         catch {
             if ($Eng.SemClip) { & $emitLine "icp: não consegui gravar o arquivo ($_); o relatório não foi gravado nem copiado (-NoClipboard)." ([ConsoleColor]::Yellow) }
@@ -266,6 +269,7 @@ function Invoke-IcpEngineDispatch {
                 N             = $e.Index + 1
                 Comando       = $e.CurCmdText
                 Rotulo        = $rotuloMasc
+                KeepOutput    = [bool]($null -ne $meta -and $meta.KeepOutput)
                 Interativo    = $false
                 Status        = 'NAO_EXECUTADO'
                 Exit          = $null
@@ -589,6 +593,7 @@ function Invoke-IcpEngineDispatch {
             else {
                 @(ConvertTo-IcpLinha -Itens $e.CurItens -Tipos $tipos -Largura ([Math]::Max(40, $e.LarguraTela - 4)) -NativoFalhou $exitFalhou -PreservarAnsi:$e.PreservarCorTela)
             }
+            if ($e.CompactLive -and $e.CurReg.Status -eq 'OK' -and $errosSilenciosos -eq 0 -and $e.CurReg.SegundoPlano.Count -eq 0 -and -not $e.CurInterativoCmd -and -not @($tipos | Where-Object { $_ -match 'Warning|Aviso' }).Count) { $tela = @() }
             if ($msgTimeout) { $tela += $msgTimeout }
             $durTela = Format-IcpDuracao -Ms $e.CurReg.Ms
             $durSuf = if ($e.CurInterativoCmd) { "($durTela · interativo)" } else { "($durTela)" }
@@ -686,6 +691,7 @@ function Invoke-IcpEngine {
         [switch]$Explain,
         [switch]$Step,
         [switch]$Interactive,
+        [switch]$CompactLive,
         [switch]$NoStatus,
         [int]$CommandTimeoutSeconds = 0,
         [switch]$KeepBlock,
@@ -856,6 +862,7 @@ function Invoke-IcpEngine {
             OutCaminho           = $__outCaminho
             OutArq               = $__outArq
             SemClip              = $__semClip
+            CompactLive          = [bool]$CompactLive
             Interativo           = $__interativo
             UsarStatus           = $__usarStatus
             PreservarCorTela     = $__preservarCorTela

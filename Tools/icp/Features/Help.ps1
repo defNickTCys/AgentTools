@@ -38,6 +38,7 @@
     Write-Host "  $(Format-IcpCor '•' 'PetroleoClaro') Rótulos $(Format-IcpCor '#* descrição' 'Creme') nomeiam passos na barra/$(Format-IcpCor '-Step' 'Creme'); $(Format-IcpCor '-Interactive' 'Creme') ou $(Format-IcpCor '#* interactive' 'Creme') liberam UI/prompts."
 
     Write-Host ''
+    Write-Host "  $(Format-IcpCor '-CompactLive' 'Creme') recolhe saídas OK; $(Format-IcpCor '#* keep-output' 'Creme') prioriza a saída no resumo XML."
     Write-Host (Format-IcpCor '▸ GALERIA VISUAL DOS ESTADOS' 'Ambar' -Negrito)
     Write-Host "  $(Format-IcpCor '╭─' 'Petroleo') $(Format-IcpCor 'icp' 'Ambar' -Negrito) $(Format-IcpCor '· 3 comando(s) · compacto' 'Neutro')"
     Write-Host "  $(Format-IcpCor '│ ' 'Pedra')$(Format-IcpCor '[1/3]' 'Neutro') $(Format-IcpCor '✓ OK' 'Oliva' -Negrito) $(Format-IcpComandoColorido -Texto 'git branch --show-current') $(Format-IcpCor '(42 ms)' 'Pedra')"

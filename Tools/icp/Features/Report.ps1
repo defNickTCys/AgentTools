@@ -408,6 +408,7 @@ function New-IcpReportModel {
             status         = [string]$r.Status
             rotulo         = $rotuloVal
             interativo     = [bool]$r.Interativo
+            keep_output    = [bool]$r.KeepOutput
             ms             = if ($r.Status -eq 'NAO_EXECUTADO') { $null } else { [int]$r.Ms }
             exit           = $r.Exit
             exit_permitido = [bool]$r.ExitPermitido
@@ -475,6 +476,7 @@ function Limit-IcpReportModelOutput {
             status         = $c.status
             rotulo         = $c.rotulo
             interativo     = $c.interativo
+            keep_output    = $c.keep_output
             ms             = $c.ms
             exit           = $c.exit
             exit_permitido = $c.exit_permitido
@@ -796,10 +798,9 @@ function Get-IcpSummaryAvisoText {
         $det += ", $($res.interrompidos) interrompidos"
     }
     if ($arq.truncado_teto) { $det += '; truncado no teto de disco' }
-    if ($Model.explain) {
-        return "O relatório completo ($det) foi gravado em arquivo. Operador: anexe o arquivo abaixo para a IA. IA: peça o anexo se ele não veio."
-    }
-    return "Relatório completo ($det) em arquivo; operador: anexe-o abaixo; IA: peça o anexo se não veio."
+    $primeiro = @($Model.comandos | Select-Object -First 1)
+    $objetivo = if ($primeiro.Count -gt 0 -and $primeiro[0].rotulo) { $primeiro[0].rotulo } elseif ($primeiro.Count -gt 0) { $primeiro[0].entrada_resumo } else { 'lote vazio' }
+    return "icp: $objetivo; relatório completo ($det) no caminho abaixo. Leia-o ou delegue a análise; se inacessível, peça que o operador anexe o arquivo."
 }
 
 function Get-IcpLogDirectory {

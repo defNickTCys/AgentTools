@@ -183,6 +183,8 @@
     silenciosos, segundo_plano e exit_permitido), o aviso completo e o bloco ambiente
     completo (até 6 linhas). Indicado para o primeiro envio a uma IA que ainda não
     conhece o icp. Sem ele, o relatório sai compacto para economizar tokens.
+    .PARAMETER CompactLive
+    Recolhe a saída de comandos concluídos com sucesso na tela.
     .PARAMETER NoStatus
     Desliga a linha de status animada durante a execução interativa (que também
     respeita a variável de ambiente NO_COLOR). A detecção de erros silenciosos,
@@ -293,6 +295,8 @@
         [Parameter(ParameterSetName = 'Exec')]
         [switch]$Interactive,
         [Parameter(ParameterSetName = 'Exec')]
+        [switch]$CompactLive,
+        [Parameter(ParameterSetName = 'Exec')]
         [switch]$NoStatus,
         [Parameter(ParameterSetName = 'Exec')]
         [ValidateRange(0, [int]::MaxValue)]
@@ -323,7 +327,7 @@
         -AllowedExitCodes $AllowedExitCodes -MaxClipboardChars $MaxClipboardChars `
         -NoMask:$NoMask -RedirectTailLines $RedirectTailLines -OutFile $OutFile `
         -NoClipboard:$NoClipboard -AllowTrailingBackslash:$AllowTrailingBackslash `
-        -Explain:$Explain -Step:$Step -Interactive:$Interactive -NoStatus:$NoStatus `
+        -Explain:$Explain -Step:$Step -Interactive:$Interactive -CompactLive:$CompactLive -NoStatus:$NoStatus `
         -CommandTimeoutSeconds $CommandTimeoutSeconds -KeepBlock:$KeepBlock `
         -Help:$Help -Full:$Full -Demo:$Demo `
         -ModoOutFile ($PSBoundParameters.ContainsKey('OutFile')) `

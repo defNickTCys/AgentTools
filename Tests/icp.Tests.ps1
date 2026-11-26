@@ -32,6 +32,72 @@ AfterAll {
 }
 
 Describe 'icp' {
+    Context 'Diretiva keep-output' {
+        It 'prioriza a falha final sobre vinte saídas marcadas e sinaliza omissões' {
+            $linhas = @()
+            1..20 | ForEach-Object { $linhas += '#* keep-output'; $linhas += "'DADO-$_-' + ('a' * 300)" }
+            $linhas += "throw 'FALHA-FINAL-PRIORITARIA'"
+            $r = Invoke-IcpTeste ([scriptblock]::Create($linhas -join "`n")) @{ MaxClipboardChars = 2000; Raw = $true }
+            $r.Length | Should -BeLessOrEqual 2000
+            $r | Should -Match 'FALHA-FINAL-PRIORITARIA'
+            $r | Should -Match 'status="FALHOU"'
+            $r | Should -Match 'Comandos omitidos do resumo:'
+        }
+        It 'preserva o final do erro e metadados do comando' {
+            $r = Invoke-IcpTeste {
+                #* comando com falha
+                & { 1..300 | ForEach-Object { 'linha-' + $_ }; throw 'ERRO-FINAL-PRESERVADO' }
+            } @{ MaxClipboardChars = 2000; Raw = $true }
+            $r.Length | Should -BeLessOrEqual 2000
+            $r | Should -Match 'ERRO-FINAL-PRESERVADO'
+            $r | Should -Match 'rotulo="comando com falha"'
+            $r | Should -Match '<entrada>'
+            $r | Should -Match '<ambiente>'
+            $r | Should -Match '<erro>'
+        }
+        It 'mantém resumo original para limites inferiores a 1000' {
+            $r = Invoke-IcpTeste {
+                #* keep-output
+                'PRIORIDADE-' + ('x' * 1000)
+            } @{ MaxClipboardChars = 100; Raw = $true }
+            $r | Should -Not -Match '<saida>'
+            $r | Should -Not -Match 'resumido="true"'
+        }
+        It 'recolhe sucesso e mantém erro no fluxo não interativo' {
+            $global:IcpTesteTela = [System.Collections.Generic.List[string]]::new()
+            Mock Write-Host -ModuleName AgentTools { $global:IcpTesteTela.Add([string]$Object) }
+            try {
+                icp -CompactLive -NoClipboard -NoStatus { Write-Output ('SUCESSO-' + 'OCULTO'); throw ('ERRO-' + 'VISIVEL') }
+                $tela = $global:IcpTesteTela -join "`n"
+                $tela | Should -Not -Match '(?m)^SUCESSO-OCULTO\r?$'
+                $tela | Should -Match 'ERRO-VISIVEL'
+                $tela | Should -Not -Match "`e\["
+            }
+            finally { Remove-Variable IcpTesteTela -Scope Global -ErrorAction Ignore }
+        }
+        It 'limita XML grande e prioriza saída marcada e falha' {
+            $linhas = @("#* keep-output", "'MARCADO-' + ('x' * 400)")
+            $linhas += 1..21 | ForEach-Object { "'OK-$_-' + ('y' * 800)" }
+            $linhas += "throw ('FALHA-IMPORTANTE-' + ('z' * 2000))"
+            $bloco = [scriptblock]::Create($linhas -join "`n")
+            $r = Invoke-IcpTeste $bloco @{ Raw = $true; MaxClipboardChars = 2000 }
+            $r.Length | Should -BeLessOrEqual 2000
+            $xml = [xml]$r
+            $xml.icp_relatorio.resumido | Should -Be 'true'
+            $r | Should -Match 'FALHA-IMPORTANTE-'
+        }
+        It 'preserva saída marcada no resumo XML e aceita rótulo adjacente' {
+            $r = Invoke-IcpTeste {
+                #* rótulo de teste
+                #* keep-output
+                'CONTEUDO-MARCADO'
+                'CONTEUDO-COMUM' + ('z' * 4000)
+            } @{ MaxClipboardChars = 2500; Raw = $true }
+            $xml = [xml]$r
+            $xml.icp_relatorio.comandos.comando[0].saida | Should -Be 'CONTEUDO-MARCADO'
+            $xml.icp_relatorio.comandos.comando[0].rotulo | Should -Be 'rótulo de teste'
+        }
+    }
     Context '1. Compatibilidade' {
         It 'icp { Get-Date } funciona e resulta OK' {
             $r = Invoke-IcpTeste { Get-Date }
@@ -269,6 +335,20 @@ Describe 'icp' {
     }
 
     Context '10. Relatório acima do limite' {
+        It 'informa passo, tamanho e caminho para leitura ou delegação' {
+            $r = Invoke-IcpTeste {
+                #* diagnóstico de saída
+                'texto-' + ('x' * 4000)
+            } @{ MaxClipboardChars = 1500; Raw = $true }
+            $caminho = [regex]::Match($r, '<arquivo>(.+?)</arquivo>').Groups[1].Value
+            $caminho | Should -Not -BeNullOrEmpty
+            $conteudo = [IO.File]::ReadAllText($caminho)
+            $bytes = (Get-Item -LiteralPath $caminho).Length
+            $r | Should -Match 'diagnóstico de saída'
+            $r | Should -Match ([regex]::Escape("$($conteudo.Length) chars, $bytes bytes"))
+            $r | Should -Match 'Leia-o ou delegue'
+            $conteudo | Should -Match 'texto-'
+        }
         It 'grava arquivo UTF-8 sem BOM e copia só o resumo com o caminho' {
             $r = Invoke-IcpTeste { 1..300 | ForEach-Object { "linha $_" }; 'curto' } @{ MaxClipboardChars = 1500 }
             $arq = [regex]::Match($r, '<arquivo>(.+)</arquivo>').Groups[1].Value

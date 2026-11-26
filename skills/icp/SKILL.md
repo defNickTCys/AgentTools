@@ -40,6 +40,7 @@ icp { git status --short; git --no-pager log --oneline -3 }
 - Use `icp -Explain { ... }` no **primeiro envio** a uma sessão de IA sem contexto prévio (inclui `<legenda>`, `<aviso>` completo e `<ambiente>` detalhado). Nos envios seguintes, prefira `icp { ... }` (compacto).
 - Use `icp -Step { ... }` quando houver comandos com efeito colateral que peçam confirmação linha a linha (`[Enter/S]`, `[A]`, `[C]`).
 - Use comentários `#* <descrição curta>` imediatamente antes de comandos longos para exibir rótulos humanos na barra ao vivo e no `-Step` mantendo o comando literal em `<entrada>`.
+- Use `#* keep-output` imediatamente antes do comando, junto a um rótulo opcional, para manter sua saída no resumo XML do clipboard.
 - Quando um comando exigir diálogo do Windows (ex.: CryptoAPI em `Cert:\CurrentUser\Root`) ou prompt interativo no console (`Read-Host`, SSH, Git), marque a linha com `#* interactive` ou use `-Interactive` no bloco inteiro (somente para execução com operador presente no terminal).
 
 ### Para execução autônoma por agente
@@ -66,7 +67,7 @@ icp -Format json -OutFile "$env:TEMP\icp-report.json" -NoStatus {
 | Formato | `-Explain` | Inclui `<legenda>`, `<aviso>` completo e `<ambiente>` em até 6 linhas. |
 | Recorte | `-Raw`, `-MaxLinesPerCommand`, `-MaxLineLength`, `-RedirectTailLines` | `-Raw` desliga deduplicação (3+) e limites (`150` linhas, mín. `10`; `1500` chars, mín. `80`). `-RedirectTailLines` padrão `5`. |
 | Execução | `-Step`, `-Interactive`, `-ContinueOnError`, `-AllowedExitCodes`, `-AllowTrailingBackslash`, `-CommandTimeoutSeconds` | Controle de pausa, passthrough UI/TTY (ou `#* interactive`), continuidade, códigos aceitos (`@()`), `\` final e timeout (`0` = off). |
-| Tela | `-KeepBlock`, `-NoStatus` | Mantém o bloco visível (quando cabe na janela) ou desliga a barra animada. |
+| Tela | `-KeepBlock`, `-NoStatus`, `-CompactLive` | Mantém o bloco visível, desliga a barra animada ou recolhe a saída de comandos concluídos com sucesso na tela. |
 | Destino | `-OutFile`, `-NoClipboard`, `-MaxClipboardChars` | `-OutFile` grava completo em UTF-8 sem BOM sem tocar no clipboard. Sem ele, acima de `20000` chars grava em `icp-logs` e copia resumo. |
 | Máscara | `-NoMask` | Desliga a ocultação automática de segredos no relatório (a tela sempre exibe o original). |
 | Ajuda | `-Help` (`-h`), `-Full`, `-Demo` | Painel TUI colorido sem executar comandos nem alterar o clipboard. |
@@ -82,7 +83,8 @@ Variáveis de ambiente opcionais: `NO_COLOR`, `AGENTTOOLS_ICP_THEME` (`gruvbox`,
   - `COM FALHAS nos comandos <N1>, <N2> de <Total>`
   - `BLOQUEADO no pré-voo (0 de <Total> executados)`
   - `INTERROMPIDO pelo operador (<E> de <Total> executados)` (via `-Step` `[C]` ou `Ctrl+C`, mantendo relatório parcial)
-- **Resumo em arquivo (`completo="arquivo"`):** quando ultrapassa `-MaxClipboardChars` sem `-OutFile`, o relatório completo vai para `icp-logs` (`.txt`, `.json`, `.md`, `.yaml` ou `.toml`, retenção automática de 7 dias) e `<arquivo>` traz o caminho absoluto para leitura direta.
+- **Resumo em arquivo (`completo="arquivo"`):** quando ultrapassa `-MaxClipboardChars` sem `-OutFile`, o relatório completo vai para `icp-logs` (`.txt`, `.json`, `.md`, `.yaml` ou `.toml`, retenção automática de 7 dias) e `<arquivo>` traz o caminho absoluto para leitura direta. O aviso identifica o primeiro passo e informa tamanho em caracteres e bytes; use esses dados para decidir entre leitura direta e delegação. Se o caminho não estiver acessível à IA, peça o arquivo ao operador.
+- Em XML, para `-MaxClipboardChars` de pelo menos 1000, o resumo prioriza falhas, avisos e comandos `#* keep-output`; saídas que excedem o espaço disponível recebem `[truncado]`. Limites menores mantêm o resumo anterior.
 - **Sinais por comando:**
   - `status`: `OK`, `FALHOU`, `INTERROMPIDO` ou `NAO_EXECUTADO`.
   - `rotulo` / `interativo`: rótulo `#*` legível e indicação de execução em modo interativo (`"true"`).

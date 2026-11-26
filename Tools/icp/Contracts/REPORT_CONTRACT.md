@@ -32,6 +32,7 @@ Atributos da raiz `<icp_relatorio>`:
 | `ms_total` | Sim | Inteiro `\d+` | Duração total do lote em milissegundos. |
 | `flags` | Condicional | Lista separada por `,` | Presente apenas quando há flags não-padrão ativas (`explain`, `raw`, `continue_on_error`, `step`, `interactive`, `no_mask`, `allow_trailing_backslash`, `allowed_exit_codes=1\|3`, `timeout=30s`). |
 | `completo` | Apenas resumo | `"arquivo"` | Presente somente quando o relatório completo excedeu `-MaxClipboardChars` (sem `-OutFile`) e foi gravado em disco. |
+| `resumido` | Condicional | `"true"` | Resumo XML sujeito ao orçamento de clipboard a partir de 1000 caracteres. |
 
 ### Valores canônicos de `resultado`
 
@@ -85,6 +86,8 @@ Atributos da raiz `<icp_relatorio>`:
 | `sem_saida_s` | Opcional (`INTERROMPIDO`) | Segundos inteiros sem nova saída antes da interrupção por `Ctrl+C`. |
 | `linhas` | Apenas resumo | Contagem de linhas da saída em `completo="arquivo"`. |
 | `chars` | Apenas resumo | Soma de caracteres das linhas de saída em `completo="arquivo"`. |
+
+A diretiva `#* keep-output` prioriza a saída no resumo XML com orçamento; falhas e avisos têm precedência. `-CompactLive` recolhe na tela a saída de comandos OK sem avisos. Quando o orçamento não comporta todos os comandos não falhos, um `<aviso>` informa a quantidade omitida. Se os metadados obrigatórios e os comandos falhos excederem o teto, eles são preservados mesmo acima do limite.
 
 ### Corpo de `<comando>` por estado e modo
 
