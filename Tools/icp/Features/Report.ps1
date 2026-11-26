@@ -34,16 +34,29 @@ function Get-IcpMaxFileChar {
     return $script:IcpMaxFileChars
 }
 
+function Get-IcpGitBranch {
+    param([System.Management.Automation.PathInfo]$Location)
+
+    if ($Location.Provider.Name -eq 'FileSystem' -and (Get-Command git -CommandType Application -ErrorAction Ignore)) {
+        $prevExit = $global:LASTEXITCODE
+        try {
+            $PSNativeCommandUseErrorActionPreference = $false
+            $branch = & git -C $Location.Path rev-parse --abbrev-ref HEAD 2>$null
+            if ($global:LASTEXITCODE -eq 0 -and $branch) { return [string]$branch }
+        }
+        finally {
+            $global:LASTEXITCODE = $prevExit
+        }
+    }
+    return ''
+}
+
 function Get-IcpAmbienteInfo {
     # Coleta metadados estruturados do ambiente (nunca inclui COMPUTERNAME nem valores de variáveis).
     $agora = Get-Date
     $loc = Get-Location
     $dir = $loc.Path
-    $git = ''
-    if ($loc.Provider.Name -eq 'FileSystem' -and (Get-Command git -CommandType Application -ErrorAction Ignore)) {
-        $branch = & git -C $dir rev-parse --abbrev-ref HEAD 2>$null
-        if ($LASTEXITCODE -eq 0 -and $branch) { $git = [string]$branch }
-    }
+    $git = Get-IcpGitBranch -Location $loc
     $pwdDef = [bool][Environment]::GetEnvironmentVariable('PWD')
     $admin = try {
         ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(

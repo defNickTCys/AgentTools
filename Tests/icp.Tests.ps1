@@ -54,6 +54,70 @@ Describe 'icp' {
         }
     }
 
+    Context 'Sondagem da branch Git' {
+        It 'preserva o código de saída do bloco fora de um repositório Git' {
+            $anterior = $global:LASTEXITCODE
+            $pasta = [IO.Directory]::CreateDirectory((Join-Path ([IO.Path]::GetTempPath()) "icp-sem-git-$([guid]::NewGuid())"))
+            try {
+                Push-Location -LiteralPath $pasta.FullName
+                try {
+                    $null = & git -C $pasta.FullName rev-parse --abbrev-ref HEAD 2>$null
+                    $global:LASTEXITCODE | Should -Be 128
+
+                    foreach ($codigo in @($null, 0)) {
+                        $global:LASTEXITCODE = $codigo
+                        $r = Invoke-IcpTeste {}
+                        $preservado = $global:LASTEXITCODE
+                        $r | Should -Match 'resultado="OK"'
+                        $r | Should -Match '<comandos total="0" executados="0">'
+                        $preservado | Should -BeExactly $codigo
+
+                        InModuleScope AgentTools {
+                            $antesDoCartao = $global:LASTEXITCODE
+                            $null = Show-IcpInicioCartao
+                            $global:LASTEXITCODE | Should -BeExactly $antesDoCartao
+                        }
+                    }
+
+                    $r = Invoke-IcpTeste { Write-Output 'OK' }
+                    $global:LASTEXITCODE | Should -Be 0
+                    $r | Should -Match 'resultado="OK"'
+                    $r | Should -Match '<comando n="1" status="OK"'
+                    Get-Linhas $r | Should -Contain 'OK'
+
+                    $r = Invoke-IcpTeste { cmd /c 'exit 42' }
+                    $global:LASTEXITCODE | Should -Be 42
+                    $r | Should -Match '<comando n="1" status="FALHOU" exit="42"'
+                }
+                finally {
+                    Pop-Location
+                }
+            }
+            finally {
+                $global:LASTEXITCODE = $anterior
+                $pasta.Delete()
+            }
+        }
+
+        It 'informa a branch real e preserva o código de saída dentro do repositório' {
+            $anterior = $global:LASTEXITCODE
+            Push-Location -LiteralPath $PSScriptRoot
+            try {
+                $branch = & git rev-parse --abbrev-ref HEAD
+                $global:LASTEXITCODE | Should -Be 0
+                $branch | Should -Not -BeNullOrEmpty
+                $global:LASTEXITCODE = 42
+                $r = Invoke-IcpTeste {} @{ Format = 'json' }
+                $global:LASTEXITCODE | Should -Be 42
+                ($r | ConvertFrom-Json).ambiente.git_branch | Should -BeExactly $branch
+            }
+            finally {
+                Pop-Location
+                $global:LASTEXITCODE = $anterior
+            }
+        }
+    }
+
     Context '2. Largura' {
         It 'tabela com caminho longo sai inteira, sem reticências' {
             $r = Invoke-IcpTeste { [pscustomobject]@{ Caminho = 'C:\' + ('pasta_longa\' * 40) + 'fim.txt'; Tamanho = 1 } | Format-Table }
